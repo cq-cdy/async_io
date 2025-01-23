@@ -36,32 +36,26 @@ struct A {
     string s;
 };
 
- A* func2(KernelBufPtr buffer) {
+A* func2(KernelBufPtr buffer) {
     A* p = new A();
     p->a = 10;
     p->s = "hello";
     return p;
 }
 int main() {
-    auto func = [](KernelBufPtr buffer, int a, string s) -> std::string {
+    auto func = [](KernelBufPtr buffer, int a, std::string s) -> std::string {
         std::cout << "buffer size: " << buffer->size() << std::endl;
         std::cout << "a: " << a << std::endl;
         std::cout << "s: " << s << std::endl;
+        std::cout << "buffer: " << buffer->data() << std::endl;
         return "ok";
     };
-    auto sendTask = createTaskWithHandler(3, sendHandler);
-    auto res = sendTask.excute_after_op(sendTask.get_buffer(), 10);
-    std::cout << res << std::endl;
 
-    auto task = createTaskWithHandler(4, func);
-    auto res2 = task.excute_after_op(task.get_buffer(), 2, "hello");
-    std::cout << res2;
+    auto ptr = createTaskWithHandler(3, func, 2, std::string("hello"));
+    auto task = createTaskWithHandler(4, func2);
+    auto res = task->excute_after_op();
+    std::cout << res->a;
+    std::cout << res->s;
 
-    auto task2 = createTaskWithHandler(5, func2);
-    A* p = task2.excute_after_op(task2.get_buffer());
-    std::cout << "a: " << p->a << std::endl;
-    std::cout << "s: " << p->s << std::endl;
-
-    auto task3 = createTaskWithHandler(6);
     return 0;
 }

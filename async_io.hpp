@@ -39,56 +39,58 @@ enum class TaskType {
 using KernelBuf = std::vector<char>;
 using KernelBufPtr = std::shared_ptr<KernelBuf>;
 
-template <typename Ret, typename... Args>
-class AsyncTask {
+struct Task {};
+
+template <typename Ret = void, typename... UserArgs>
+class AsyncTask : public Task {
    private:
-    using FunctionType = std::function<Ret(Args...)>;
+    using FunctionType = std::function<Ret(KernelBufPtr, UserArgs...)>;
     using CheckBuffer_Fun_ = std::function<bool(KernelBufPtr&)>;
     friend class AsyncTcpServer;
-    // 声明友元函数
+
     template <typename R, typename Tuple, typename Func, std::size_t... I>
     friend auto unpack_and_instantiate_handler_wrapper_impl(
-        int fd, Func&& func, std::index_sequence<I...>);
+        int fd, Func&& func, Tuple&& args_tuple, std::index_sequence<I...>);
 
    private:
-    explicit AsyncTask(int fd, FunctionType&& func) : handler_(func) {
+    explicit AsyncTask(int fd, FunctionType&& func, std::tuple<UserArgs...>&& args)
+        : handler_(std::move(func)), args_tuple_(std::move(args)) {
         this->fd_ = fd;
         this->buffer_sptr_ = std::make_shared<KernelBuf>(1024);
     }
 
    public:
     AsyncTask(const AsyncTask& other) = default;
-    AsyncTask& operator=(const AsyncTask& other) = default;
+    AsyncTask& operator=(const AsyncTask& other) {
+        if (this != &other) {
+            this->fd_ = other.fd_;
+            this->buffer_sptr_ = other.buffer_sptr_;
+            this->handler_ = other.handler_;
+            this->check_buffer_ = other.check_buffer_;
+            this->done_ = other.done_;
+            this->task_type_ = other.task_type_;
+            this->args_tuple_ = other.args_tuple_;
+        }
+        return *this;
+    }
+
     KernelBufPtr& operator()() noexcept { return this->buffer_sptr_; }
 
-    template <typename... CallArgs>
-    Ret excute_after_op(CallArgs&&... args) noexcept {
-        if constexpr (sizeof...(CallArgs) != sizeof...(Args)) {
-            static_assert(sizeof...(CallArgs) == sizeof...(Args),
-                          "Number of arguments does not match");
+    Ret excute_after_op() noexcept {
+        auto new_args = std::tuple_cat(std::make_tuple(this->buffer_sptr_), args_tuple_);
+        auto buf = this->buffer_sptr_;
+
+        if constexpr (std::is_same_v<Ret, void>) {
+            std::apply(handler_, new_args);
         } else {
-            if constexpr (std::is_same_v<Ret, void>) {
-                handler_(std::forward<CallArgs>(args)...);
-            } else {
-                return handler_(std::forward<CallArgs>(args)...);
-            }
+            return std::apply(handler_, new_args);
         }
     }
 
-    inline void set_task_type(TaskType task_type) noexcept {
-        this->task_type_ = task_type;
-    }
-
-    inline void set_buffer_hardly(const KernelBufPtr buffer) noexcept {
-        this->buffer_sptr_ = std::move(buffer);
-    }
-
-    inline void set_check_buffer(CheckBuffer_Fun_ check_buffer) noexcept {
-        this->check_buffer_ = check_buffer;
-    }
-
+    inline void set_task_type(TaskType task_type) noexcept { this->task_type_ = task_type; }
+    inline void set_buffer_hardly(KernelBufPtr buffer) noexcept { this->buffer_sptr_ = std::move(buffer); }
+    inline void set_check_buffer(CheckBuffer_Fun_ check_buffer) noexcept { this->check_buffer_ = check_buffer; }
     inline KernelBufPtr get_buffer() noexcept { return this->buffer_sptr_; }
-
     void reset_buffer() noexcept { this->buffer_sptr_->resize(0); }
     inline bool iodone() const noexcept { return this->done_; }
     inline void set_done(bool done) noexcept { this->done_ = done; }
@@ -103,25 +105,22 @@ class AsyncTask {
     AsyncTask* next_{nullptr};
     KernelBufPtr buffer_sptr_{};
     FunctionType handler_{};
-    CheckBuffer_Fun_ check_buffer_ = [](KernelBufPtr&) noexcept {
-        return true;
-    };
+    CheckBuffer_Fun_ check_buffer_ = [](KernelBufPtr&) noexcept { return true; };
+    std::tuple<UserArgs...> args_tuple_{};
+    TaskType task_type_;
 };
 
-// 1. 用于提取函数类型的类型萃取模板结构
+// FunctionTraits to extract function signature
 template <typename T>
-struct FunctionTraits;  // 先声明
+struct FunctionTraits;
 
-// 特化：处理普通函数类型
 template <typename R, typename... Args>
 struct FunctionTraits<R (*)(Args...)> {
-    using ReturnType = R;                            // 返回值类型
-    using ArgsTuple = std::tuple<Args...>;           // 参数类型的元组
-    static constexpr size_t ArgCount = sizeof...(Args);  // 参数个数
-    TaskType task_type{TaskType::READ};
+    using ReturnType = R;
+    using ArgsTuple = std::tuple<Args...>;
+    static constexpr size_t ArgCount = sizeof...(Args);
 };
 
-// 特化：处理 std::function 类型
 template <typename R, typename... Args>
 struct FunctionTraits<std::function<R(Args...)>> {
     using ReturnType = R;
@@ -129,11 +128,9 @@ struct FunctionTraits<std::function<R(Args...)>> {
     static constexpr size_t ArgCount = sizeof...(Args);
 };
 
-// 特化：处理 lambda 表达式
 template <typename Func>
-struct FunctionTraits : public FunctionTraits<decltype(&Func::operator())> {};
+struct FunctionTraits : FunctionTraits<decltype(&Func::operator())> {};
 
-// 特化：处理成员函数指针
 template <typename ClassType, typename R, typename... Args>
 struct FunctionTraits<R (ClassType::*)(Args...)> {
     using ReturnType = R;
@@ -141,7 +138,6 @@ struct FunctionTraits<R (ClassType::*)(Args...)> {
     static constexpr size_t ArgCount = sizeof...(Args);
 };
 
-// 特化：处理 const 成员函数指针
 template <typename ClassType, typename R, typename... Args>
 struct FunctionTraits<R (ClassType::*)(Args...) const> {
     using ReturnType = R;
@@ -149,39 +145,43 @@ struct FunctionTraits<R (ClassType::*)(Args...) const> {
     static constexpr size_t ArgCount = sizeof...(Args);
 };
 
-// 辅助函数来解包 ArgsTuple 并传递给 HandlerWrapper
-template <typename Ret, typename Tuple, typename Func>
-auto unpack_and_instantiate_handler_wrapper(Func&& func);
+template <typename Tuple>
+struct split_args;
+
+template <typename First, typename... Rest>
+struct split_args<std::tuple<First, Rest...>> {
+    using rest_type = std::tuple<Rest...>;
+};
 
 template <typename Ret, typename Tuple, typename Func, std::size_t... I>
 auto unpack_and_instantiate_handler_wrapper_impl(int fd, Func&& func,
+                                                 Tuple&& args_tuple,
                                                  std::index_sequence<I...>) {
-    AsyncTask<Ret, std::tuple_element_t<I, Tuple>...> wrapper(
-        fd, std::forward<Func>(func));
-    return wrapper;
+    return new AsyncTask<Ret, std::tuple_element_t<I, Tuple>...>(
+        fd, std::forward<Func>(func), std::forward<Tuple>(args_tuple));
 }
 
 template <typename Ret, typename Tuple, typename Func>
-auto unpack_and_instantiate_handler_wrapper(int fd, Func&& func) {
+auto unpack_and_instantiate_handler_wrapper(int fd, Func&& func, Tuple&& args_tuple) {
     return unpack_and_instantiate_handler_wrapper_impl<Ret, Tuple>(
-        fd, std::forward<Func>(func),
+        fd, std::forward<Func>(func), std::forward<Tuple>(args_tuple),
         std::make_index_sequence<std::tuple_size_v<Tuple>>{});
 }
 
-// instantiate class template with function
-template <typename KeyType = KernelBufPtr,typename Func=std::function<void(KeyType)> >
-auto createTaskWithHandler(int fd, Func&& func=Func{}) {
-    using ReturnType = typename FunctionTraits<std::decay_t<Func>>::ReturnType;
-    using ArgsTuple = typename FunctionTraits<std::decay_t<Func>>::ArgsTuple;
+template <typename Func, typename... Args>
+auto createTaskWithHandler(int fd, Func&& func, Args&&... args) {
+    using FuncTraits = FunctionTraits<std::decay_t<Func>>;
+    using FuncArgsTuple = typename FuncTraits::ArgsTuple;
+    static_assert(std::tuple_size_v<FuncArgsTuple> >= 1, "Function must have at least one argument");
+    using FirstArgType = std::tuple_element_t<0, FuncArgsTuple>;
+    static_assert(std::is_same_v<FirstArgType, KernelBufPtr>, "First argument must be KernelBufPtr");
 
-    using FirstArgType = typename std::tuple_element<0, ArgsTuple>::type;
-    // use static_assert to check the first argument type
-    static_assert(std::is_same_v<FirstArgType, KeyType>,
-                  "First argument must be of type KeyType");
+    using UserArgsTuple = typename split_args<FuncArgsTuple>::rest_type;
+    static_assert(sizeof...(Args) == std::tuple_size_v<UserArgsTuple>,
+                  "Number of arguments provided does not match required count");
 
-    // unpack ArgsTuple and pass to HandlerWrapper
-    return unpack_and_instantiate_handler_wrapper<ReturnType, ArgsTuple>(
-        fd, std::forward<Func>(func));
+    return unpack_and_instantiate_handler_wrapper<typename FuncTraits::ReturnType, UserArgsTuple>(
+        fd, std::forward<Func>(func), std::make_tuple(std::forward<Args>(args)...));
 }
 };  // namespace task
 
@@ -199,7 +199,16 @@ class AsyncTcpServer {
         }
         this->__init_server();
     }
+    void addTask(task::Task* task) {
+        struct io_uring_sqe* sqe = io_uring_get_sqe(this->uring_ptr_);
+        if (!sqe) {
+            fprintf(stderr, "Failed to get SQE\n");
+            return;
+        }
+        sqe->user_data = reinterpret_cast<uint64_t>(task);
 
+        io_uring_submit(this->uring_ptr_);
+    }
     virtual ~AsyncTcpServer() {
         io_uring_queue_exit(this->uring_ptr_);
         delete this->uring_ptr_;

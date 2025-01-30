@@ -26,6 +26,9 @@
 #define DEBUG_PRINT(fmt, ...) (void)0
 #endif
 
+#define TIMEOUT_MOV_BIT_ 63
+#define ERROR_MOV_BIT_ 62
+#define CANCEL_MOV_BIT_ 61
 namespace talon {
 const char* const _VERSION = "v1.0.0";
 namespace task {
@@ -81,7 +84,14 @@ enum class TaskType {
     LINK_TIMEOUT
 };
 
-enum class TaskState { READY = 1000, SUBMITED, SUCCESS, FAILED, TIMEOUT };
+enum class TaskState {
+    READY = 1000,
+    SUBMITED,
+    SUCCESS,
+    FAILED,
+    TIMEOUT,
+    CANCELED
+};
 
 struct KernelBuf {
     friend class talon::IOHandler;
@@ -163,7 +173,7 @@ class AsyncTask : public Task {
     }
     inline void __set_detach_and_done(bool detach) noexcept {
         if (detach) {
-            this->set_repeat_forever(false);
+            // this->set_repeat_forever(false);
             this->is_done_->set_value(true);
             if (tasks_try_count.find(this) != tasks_try_count.end()) {
                 tasks_try_count.erase(this);
@@ -201,7 +211,7 @@ class AsyncTask : public Task {
             tasks_try_count.erase(this);
         }
         delete this->is_done_;
-        // todo wait iodone success to delete next
+
         if (this->next_) {
             delete this->next_;
             this->next_ = nullptr;
@@ -226,36 +236,35 @@ class AsyncTask : public Task {
         IOResult ret(-1, this->buffer_sptr_->io_ret_fd(), is_detached,
                      "io done");
 
-        // 如果没有分离任务，返回错误信息
         if (!is_detached) {
             ret.err_msg_ = "task not detached from execute queue now.";
             return ret;
         }
-
-        // 获取 future，并检查是否有效
-        auto future = this->is_done_->get_future();
-
-        // 如果 future 无效，表示已经获取过结果，直接返回
-        if (!future.valid() || future.wait_for(std::chrono::milliseconds(0)) ==
-                                   std::future_status::ready) {
-            ret.io_ret_ = this->buffer_sptr_->io_ret_v();
-            ret.err_msg_ = "IO Result already retrieved";
-            return ret;
-        }
-
-        // 如果 timeout 大于0，等待结果或超时
-        if (timeout > 0) {
-            auto status = future.wait_for(std::chrono::milliseconds(timeout));
-            if (status == std::future_status::ready) {
+        /*
+        此方法不会被频繁调用，因此舍弃性能，用try-catch
+        */
+        try {
+            auto future = this->is_done_->get_future();
+            if (!future.valid() || future.wait_for(std::chrono::milliseconds(
+                                       0)) == std::future_status::ready) {
                 ret.io_ret_ = this->buffer_sptr_->io_ret_v();
+                ret.err_msg_ = "IO Result already done";
+
             } else {
-                ret.err_msg_ = "get result timeout";
+                if (timeout > 0) {
+                    auto status =
+                        future.wait_for(std::chrono::milliseconds(timeout));
+                    if (status == std::future_status::ready) {
+                        ret.io_ret_ = this->buffer_sptr_->io_ret_v();
+                    } else {
+                        ret.err_msg_ = "get result timeout";
+                    }
+                }
             }
-            return ret;
+        } catch (const std::future_error& e) {
+            ret.err_msg_ = "Future error: " + std::string(e.what());
         }
 
-        // 如果没有超时，直接返回
-        ret.io_ret_ = this->buffer_sptr_->io_ret_v();
         return ret;
     }
 
@@ -315,6 +324,28 @@ class AsyncTask : public Task {
         this->max_retry_count_ = max_retry_count;
     }
 
+    __u64 cancel(io_uring* uring, __u64 special_user_data = 0) noexcept {
+        __u64 userdata =
+            special_user_data == 0 ? this->user_data_ : special_user_data;
+
+        io_uring_sqe* cancel_sqe = io_uring_get_sqe(uring);
+        if (!cancel_sqe) return -1;
+
+        io_uring_prep_cancel(cancel_sqe, (void*)userdata, 0);
+
+        constexpr auto cancel_flag = 1ULL << CANCEL_MOV_BIT_;
+        cancel_sqe->user_data = userdata | cancel_flag;
+
+        int ret = io_uring_submit(uring);
+        if (ret < 0) {
+            DEBUG_PRINT("Cancel submit failed: %s\n", strerror(-ret));
+            return -1;
+        }
+        // 返回cancel_sqe->user_data，
+        // 是为了可以通过cancel_sqe->user_data取消“取消任务”这个任务
+        return cancel_sqe->user_data;
+    }
+
    private:
     std::promise<bool>* is_done_{nullptr};
     std::atomic<bool> detach_ = {false};
@@ -333,6 +364,8 @@ class AsyncTask : public Task {
     TaskType task_type_{TaskType::NONE};
     std::atomic<TaskState> task_state_{TaskState::READY};
     std::string debug_str_{};
+    __u64 user_data_{0};
+    std::atomic<bool> is_cancel_{false};
 };
 // FunctionTraits to extract function signature
 template <typename T>
@@ -473,7 +506,6 @@ class IOHandler {
 
         auto task = task::createTaskWithHandler(sockfd, handler);
         task->set_task_type(task::TaskType::CONNECT);
-        // 将地址信息存入buffer
         task->buffer_sptr_->buf_.resize(sizeof(server_addr));
         memcpy(task->buffer_sptr_->buf_.data(), &server_addr,
                sizeof(server_addr));
@@ -496,13 +528,13 @@ class IOHandler {
             task->set_debug_str("faild: task ptr is null.");
             return false;
         }
-        task->__set_detach_and_done(false);
         if (!__try_submit(task)) {
             task->set_debug_str("faild: task is excuting.");
-            task->detach_ = false;  // dont use __set_detach;
+            task->detach_ = false;
             return false;
         }
-
+        task->__set_detach_and_done(false);
+        task->is_cancel_ = false;
         DEBUG_PRINT("add TASK ok,fd = %d\n", task->fd_);
         if (task->repeat_when_failed()) {
             if (task::tasks_try_count.find(task) ==
@@ -530,14 +562,14 @@ class IOHandler {
              */
             while (true) {
                 io_uring_cqe* cqe;
-                io_uring_wait_cqe(uring_ptr_, &cqe);
-
+                int wait_ret = io_uring_wait_cqe(uring_ptr_, &cqe);
                 io_uring_cqe_seen(uring_ptr_, cqe);
 
                 enum EventFlags : uintptr_t {
-                    TIMEOUT_FLAG = 1ULL << 63,
-                    ERROR_FLAG = 1ULL << 62,
-                    MASK_FLAGS = TIMEOUT_FLAG | ERROR_FLAG
+                    TIMEOUT_FLAG = 1ULL << TIMEOUT_MOV_BIT_,
+                    ERROR_FLAG = 1ULL << ERROR_MOV_BIT_,
+                    CANCEL_FLAG = 1ULL << CANCEL_MOV_BIT_,
+                    MASK_FLAGS = TIMEOUT_FLAG | ERROR_FLAG | CANCEL_FLAG
                 };
 
                 const auto user_data = cqe->user_data;
@@ -549,10 +581,26 @@ class IOHandler {
                 if (!task_p) {
                     continue;
                 }
-                if (task_p->getType() == task::TaskType::WRITE) {
-                    DEBUG_PRINT("write fd = %d\n", task_p->fd_);
+                /*
+                如果一个sqe被cancel，那么先触发 cancel_cqe，在cancel_cqe中拿到
+                被cancel任务的task指针，把原子变量is_cancel_设为true，随后被cancel的sqe会
+                立即触发cqe，然后根据is_cancel_判断，更改状态。
+                */
+                if (task_p->is_cancel_) {
+                    DEBUG_PRINT("Ignoring event for canceled task fd=%d\n",
+                                task_p->fd_);
+                    task_p->__set_detach_and_done(true);
+                    task_p->__set_task_state(task::TaskState::CANCELED);
+                    continue;
                 }
+
                 switch (event_type) {
+                    case CANCEL_FLAG: {
+                        if (cqe->res >= 0) {
+                            __handle_cancel_event(task_p);
+                        }
+                        break;
+                    }
                     case ERROR_FLAG:
                         __handle_error_event(task_p, cqe->res);
                         break;
@@ -585,6 +633,14 @@ class IOHandler {
     }
 
     template <typename Ret_, typename... UserArgs_>
+    void __handle_cancel_event(task::AsyncTask<Ret_, UserArgs_...>* task_p) {
+        task_p->is_cancel_ = true;
+
+        DEBUG_PRINT("Canceled task fd:%d\n", task_p->fd_);
+        task_p->set_debug_str("task be cancel.");
+    }
+
+    template <typename Ret_, typename... UserArgs_>
     inline void __handle_timeout_event(
         task::AsyncTask<Ret_, UserArgs_...>* task_p) {
         __handle_timeout_task(task_p);
@@ -601,12 +657,10 @@ class IOHandler {
         if (res < 0) {
             task_p->__set_task_state(task::TaskState::FAILED);
             if (res == -EAGAIN || res == -EWOULDBLOCK) {
-                // 无数据/暂时不可用，重新提交任务
                 DEBUG_PRINT("Temporary error, resubmitting task on fd %d\n",
                             task_p->fd_);
                 addTask(task_p);  // 手动重复
             } else {
-                // 永久性错误处理
                 __handle_io_failure(task_p);
             }
         } else {
@@ -618,14 +672,15 @@ class IOHandler {
                 __handle_connection_close(task_p);
             } else {
                 task_p->excute_after_op();
+
                 if (task_p->repeat_forever()) {
                     task_p->__set_task_state(task::TaskState::SUCCESS);
                     addTask(task_p);
+                } else {
+                    // 处理正常短连接
+                    task_p->__set_task_state(task::TaskState::SUCCESS);
+                    task_p->detach_ = true;
                 }
-                // 处理正常短连接
-                task_p->__set_task_state(task::TaskState::SUCCESS);
-                task_p->detach_ =
-                    true;  // dont use __set_detach : then dont set is_done_;
 
                 // 处理任务链
                 if (task_p->next_) {
@@ -758,7 +813,7 @@ class IOHandler {
             struct __kernel_timespec ts = {.tv_sec = 0, .tv_nsec = 0};
             io_uring_prep_timeout(sqe, &ts, 0, 0);
 
-            constexpr uintptr_t ERROR_FLAG = 1ULL << 62;
+            constexpr uintptr_t ERROR_FLAG = 1ULL << ERROR_MOV_BIT_;
             sqe->user_data = reinterpret_cast<uintptr_t>(task) | ERROR_FLAG;
 
             io_uring_submit(uring_ptr_);
@@ -810,22 +865,22 @@ class IOHandler {
             }
             default:
                 DEBUG_PRINT("task type not supported\n");
-                break;
+                exit(-1);
         }
-        if (task->timeout_ms_ > 0) {
-            struct io_uring_sqe* timeout_sqe = io_uring_get_sqe(uring_ptr_);
-            if (timeout_sqe) {
-                struct __kernel_timespec ts;
-                ts.tv_sec = task->timeout_ms_ / 1000;
-                ts.tv_nsec = (task->timeout_ms_ % 1000) * 1000000LL;
-                io_uring_prep_timeout(timeout_sqe, &ts, 0, 0);
-                constexpr uintptr_t TIMEOUT_FLAG = 1ULL << 63;
-                timeout_sqe->user_data =
-                    reinterpret_cast<uintptr_t>(task) | TIMEOUT_FLAG;
-            }
-        }
-        sqe->user_data = reinterpret_cast<decltype(sqe->user_data)>(task);
         sqe->fd = task->fd_;
+        if (task->timeout_ms_ > 0) {
+            // struct io_uring_sqe* timeout_sqe = io_uring_get_sqe(uring_ptr_);
+            struct __kernel_timespec ts;
+            ts.tv_sec = task->timeout_ms_ / 1000;
+            ts.tv_nsec = (task->timeout_ms_ % 1000) * 1000000LL;
+            io_uring_prep_timeout(sqe, &ts, 0, 0);
+            constexpr uintptr_t TIMEOUT_FLAG = 1ULL << TIMEOUT_MOV_BIT_;
+            sqe->user_data = reinterpret_cast<uintptr_t>(task) | TIMEOUT_FLAG;
+
+        } else {
+            sqe->user_data = reinterpret_cast<decltype(sqe->user_data)>(task);
+        }
+        task->user_data_ = sqe->user_data;
         io_uring_submit(this->get_iouring());
     }
 

@@ -1,3 +1,16 @@
+/*
+
+@author Taloncdy
+@version: v1.0.0
+@description: A simple header-only cpp async io library based on io_uring ,
+             support tcp server and client, file io, etc.
+             It is easy to use, minimizes the function callback hell of
+             the traditional asynchronous IO programming model,
+             and provides a more intuitive programming interface.
+@LICENSE: MIT
+
+*/
+
 #ifndef TALON_ASYNC_IO_HPP
 #define TALON_ASYNC_IO_HPP
 #include <arpa/inet.h>
@@ -44,6 +57,11 @@ namespace talon {
 namespace task {
 template <typename Ret, typename... UserArgs>
 class AsyncTask;
+
+/*
+    the IO task result struct
+
+*/
 struct IOResult {
     template <typename Ret, typename... UserArgs>
     friend class talon::task::AsyncTask;
@@ -59,9 +77,14 @@ struct IOResult {
     inline const std::string err_msg() const noexcept { return this->err_msg_; }
 
    private:
+    /* task io result*/
     int io_ret_{};
+    /*which fd happend io*/
     int event_fd_{};
+    /* ths async io task excute done ? */
     bool iodone_{false};
+
+    /*Describe the reason why the task is not completed normally*/
     std::string err_msg_;
 };
 enum class TaskType {
@@ -72,6 +95,8 @@ enum class TaskType {
     CONNECT,
     CLOSE,
     TIMEOUT,
+
+    // ↓ todo implement case
     TIMEOUT_REMOVE,
     TIMEOUT_UPDATE,
     FALLOCATE,
@@ -93,6 +118,11 @@ enum class TaskState {
     CANCELED
 };
 
+/*
+    Buffer encapsulation for user IO operations,
+    user can customize buffer size，
+    And set the offset of the file descriptor。
+*/
 struct KernelBuf {
     friend class talon::IOHandler;
     KernelBuf(size_t size) : size_(size) { buf_.resize(size); }
@@ -142,10 +172,15 @@ struct Task {
 static std::unordered_map<Task*, int> tasks_try_count{};
 struct DefaultHandler;
 
+/*
+    Body of user-submitted asynchronous IO
+    The same is the only interface object for users to operate asynchronous IO
+*/
 template <typename Ret = void, typename... UserArgs>
 class AsyncTask : public Task {
    private:
     using FunctionType = std::function<Ret(KernelBufPtr, UserArgs...)>;
+
     using CheckBuffer_Fun_ = std::function<bool(const KernelBufPtr&)>;
     friend class IOHandler;
 
@@ -187,23 +222,14 @@ class AsyncTask : public Task {
 
     AsyncTask& operator=(const AsyncTask& other) {
         if (this != &other) {
-            this->fd_ = other.fd_;
             this->buffer_sptr_ = other.buffer_sptr_;
-            this->handler_ = other.handler_;
-            this->check_buffer_ = other.check_buffer_;
-            this->done_ = other.done_;
-            this->task_type_ = other.task_type_;
-            this->args_tuple_ = other.args_tuple_;
-            this->next_ = other->next_;
-            this->task_state_ = other->task_state_;
-            this->task_type_ = other->task_type_;
-            this->is_done_ = other.is_done_;
         }
         return *this;
     }
     virtual ~AsyncTask() {
         /*
-         析构的时候 不保证线程安全，用户自行操作
+            When destructing, thread safety is not guaranteed, and the user
+            operates it by himself
         */
         DEBUG_PRINT("in task ~ fd = %d\n", this->fd_);
 
@@ -212,6 +238,7 @@ class AsyncTask : public Task {
         }
         delete this->is_done_;
 
+        // release next task
         if (this->next_) {
             delete this->next_;
             this->next_ = nullptr;
@@ -230,6 +257,11 @@ class AsyncTask : public Task {
     inline void set_buffer_soft(task::KernelBufPtr buffer) noexcept {
         this->buffer_sptr_ = std::move(buffer);
     }
+
+    /*
+        Provide a synchronous function interface to
+        spy on the execution progress and results of asynchronous IO
+    */
     IOResult io_done(uint timeout = -1) noexcept {
         bool is_detached = this->detach_.load();
 
@@ -240,8 +272,10 @@ class AsyncTask : public Task {
             ret.err_msg_ = "task not detached from execute queue now.";
             return ret;
         }
+
         /*
-        此方法不会被频繁调用，因此舍弃性能，用try-catch
+            This method is not called frequently,
+            so performance is discarded and try-catch is used
         */
         try {
             auto future = this->is_done_->get_future();
@@ -313,7 +347,7 @@ class AsyncTask : public Task {
         this->debug_str_ = std::move(debug_str);
     }
 
-    inline const std::string get_debug_str() noexcept {
+    inline const std::string get_debug_str() const noexcept {
         return this->debug_str_;
     }
 
@@ -341,13 +375,23 @@ class AsyncTask : public Task {
             DEBUG_PRINT("Cancel submit failed: %s\n", strerror(-ret));
             return -1;
         }
-        // 返回cancel_sqe->user_data，
-        // 是为了可以通过cancel_sqe->user_data取消“取消任务”这个任务
+        /*
+            Return cancel_sqe - > user_data,
+            In order to cancel the "Cancel Mission" mission
+            through cancel_sqe - > user_data
+        */
         return cancel_sqe->user_data;
     }
 
    private:
+    // the task excute after io done
     std::promise<bool>* is_done_{nullptr};
+
+    /*
+        If the user submits an IO task,
+        it will no longer be executed in the IOHandler (whether it succeeds or
+       fails). Will be marked as detach_ = true
+    */
     std::atomic<bool> detach_ = {false};
     bool repeat_forever_{false};
     int max_retry_count_{-1};
@@ -356,7 +400,14 @@ class AsyncTask : public Task {
     AsyncTask<Ret, UserArgs...>* next_{nullptr};
     KernelBufPtr buffer_sptr_{};
 
+    /*
+        The user returns to the function after the IO is completed,
+        where the user can process the IO result,
+        the default callback handler does nothing.
+    */
     FunctionType handler_{};
+    // temporarily deprecated Originally used for custom logic to check if IO
+    // results meet expectations
     CheckBuffer_Fun_ check_buffer_ = [](const KernelBufPtr&) noexcept {
         return true;
     };
@@ -371,13 +422,14 @@ class AsyncTask : public Task {
 template <typename T>
 struct FunctionTraits;
 
+// to extract function signature
 template <typename R, typename... Args>
 struct FunctionTraits<R (*)(Args...)> {
     using ReturnType = R;
     using ArgsTuple = std::tuple<Args...>;
     static constexpr size_t ArgCount = sizeof...(Args);
 };
-
+// to extract function obj signature
 template <typename R, typename... Args>
 struct FunctionTraits<std::function<R(Args...)>> {
     using ReturnType = R;
@@ -385,9 +437,11 @@ struct FunctionTraits<std::function<R(Args...)>> {
     static constexpr size_t ArgCount = sizeof...(Args);
 };
 
+// to extract lambda signature
 template <typename Func>
 struct FunctionTraits : FunctionTraits<decltype(&Func::operator())> {};
 
+// to extract member function signature
 template <typename ClassType, typename R, typename... Args>
 struct FunctionTraits<R (ClassType::*)(Args...)> {
     using ReturnType = R;
@@ -395,6 +449,7 @@ struct FunctionTraits<R (ClassType::*)(Args...)> {
     static constexpr size_t ArgCount = sizeof...(Args);
 };
 
+// to extract const member function signature
 template <typename ClassType, typename R, typename... Args>
 struct FunctionTraits<R (ClassType::*)(Args...) const> {
     using ReturnType = R;
@@ -430,6 +485,22 @@ struct DefaultHandler {
     void operator()(KernelBufPtr) {}
 };
 
+/*
+
+    This function is the only entry point for users to create asynchronous IO tasks
+    You must pass in the file descriptor fd and provide the variable args,
+    which is a user-defined parameter》The function Func passed by the user,
+    the first parameter must be of type KernelBufPtr to receive the IO result
+    However, when the user passes in an argument, he does not need to pass
+    in the KernelBufPtr type, he only needs to pass in other parameters.
+
+    Because Func will be called after the IO is completed,
+    the logic for processing IO results can be defined in
+    Func through KernelBufPtr
+
+    See the relevant sample file example.cc usage details
+
+*/
 template <typename Func = DefaultHandler, typename... Args>
 auto createTaskWithHandler(int fd, Func&& func = Func{}, Args... args) {
     using FuncTraits = FunctionTraits<std::decay_t<Func>>;
@@ -452,6 +523,10 @@ auto createTaskWithHandler(int fd, Func&& func = Func{}, Args... args) {
 namespace tcp {};
 namespace file {};
 
+/*
+    main loop of io_uring
+    using one thread to handle all  async io task
+*/
 class IOHandler {
    public:
     IOHandler(int max_entries = 32) : max_entries_(max_entries) {
@@ -479,7 +554,7 @@ class IOHandler {
 
     io_uring* get_iouring() const noexcept { return this->uring_ptr_; }
 
-    template <typename Ret_, typename... UserArgs_>
+    template <typename Ret_ = void, typename... UserArgs_>
     task::AsyncTask<Ret_, UserArgs_...>* createConnectTask(
         const std::string& ip, int port) {
         int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -522,6 +597,12 @@ class IOHandler {
             expected, task::TaskState::SUBMITED, std::memory_order_acq_rel,
             std::memory_order_acquire);
     }
+
+    /*
+        Add a task to the IOHandler for execution
+        Use atomic operations to ensure thread safety
+        so that the same task is not recommitted during readiness
+    */
     template <typename Ret_, typename... UserArgs_>
     bool addTask(task::AsyncTask<Ret_, UserArgs_...>* task) {
         [[unlikely]] if (task == nullptr) {
@@ -582,9 +663,11 @@ class IOHandler {
                     continue;
                 }
                 /*
-                如果一个sqe被cancel，那么先触发 cancel_cqe，在cancel_cqe中拿到
-                被cancel任务的task指针，把原子变量is_cancel_设为true，随后被cancel的sqe会
-                立即触发cqe，然后根据is_cancel_判断，更改状态。
+                    If a sqe is cancelled, then trigger cancel_cqe first and get
+                    it in cancel_cqe The task pointer of the canceled task, set the
+                    atomic variable is_cancel_ to true, and then the canceled sqe
+                    will Immediately trigger CQE, and then according to the
+                    is_cancel_ judgment, change the state.
                 */
                 if (task_p->is_cancel_) {
                     DEBUG_PRINT("Ignoring event for canceled task fd=%d\n",
@@ -659,12 +742,12 @@ class IOHandler {
             if (res == -EAGAIN || res == -EWOULDBLOCK) {
                 DEBUG_PRINT("Temporary error, resubmitting task on fd %d\n",
                             task_p->fd_);
-                addTask(task_p);  // 手动重复
+                while (!addTask(task_p));  // manual repeat
             } else {
                 __handle_io_failure(task_p);
             }
         } else {
-            // 处理连接关闭或正常完成
+            // Processing connection closed or completed normally
             if (res == 0) {
                 DEBUG_PRINT(
                     "Zero-length response, closing connection on fd %d\n",
@@ -677,12 +760,12 @@ class IOHandler {
                     task_p->__set_task_state(task::TaskState::SUCCESS);
                     addTask(task_p);
                 } else {
-                    // 处理正常短连接
+                    // handle normal short connections
                     task_p->__set_task_state(task::TaskState::SUCCESS);
                     task_p->detach_ = true;
                 }
 
-                // 处理任务链
+                // process task chain
                 if (task_p->next_) {
                     addTask(task_p->next_);
                 }
@@ -850,7 +933,6 @@ class IOHandler {
                                    task->buffer_sptr_->get_fd_offset());
                 break;
             case task::TaskType::WRITE:
-                DEBUG_PRINT("write task\n");
                 io_uring_prep_write(sqe, task->fd_,
                                     task->buffer_sptr_->buf_.data(),
                                     task->buffer_sptr_->buf_.size(),
@@ -869,7 +951,7 @@ class IOHandler {
         }
         sqe->fd = task->fd_;
         if (task->timeout_ms_ > 0) {
-            // struct io_uring_sqe* timeout_sqe = io_uring_get_sqe(uring_ptr_);
+            // timeout task
             struct __kernel_timespec ts;
             ts.tv_sec = task->timeout_ms_ / 1000;
             ts.tv_nsec = (task->timeout_ms_ % 1000) * 1000000LL;

@@ -3,7 +3,7 @@
 [![Header-only](https://img.shields.io/badge/Header--only-Efficient-brightgreen)](https://github.com/your-repo)
 [![Linux](https://img.shields.io/badge/Platform-Linux%20Kernel≥5.11-blue)](https://www.kernel.org/)
 
-**Talon Async IO** 是一个基于 Linux io_uring 子系统构建的现代异步 I/O 开发框架，采用创新的 Handler 驱动模型和单线程事件循环架构，为开发者提供高性能、低延迟的 I/O 操作解决方案。
+**Talon Async IO** 是一个基于 Linux io_uring 子系统构建的现代异步 I/O 开发框架，采用Handler驱动创建任务的编程模型和单线程事件循环架构，为开发者提供高性能、低延迟的 I/O 操作解决方案。
 
 ## 🌟 核心特性
 

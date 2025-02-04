@@ -145,6 +145,7 @@ struct KernelBuf {
     }
     ~KernelBuf() { this->buf_.clear(); }
 
+    inline char& operator[](size_t index) { return this->buf_[index]; }
     inline void set_fd_offset(off64_t oft) noexcept { this->offset_ = oft; }
     inline off64_t get_fd_offset() const noexcept { return this->offset_; }
     inline int io_ret_v() const noexcept { return this->io_ret_.value_; }
@@ -169,7 +170,7 @@ using KernelBufPtr = std::shared_ptr<KernelBuf>;
 struct Task {
     virtual ~Task() = default;
 };
-static std::unordered_map<Task*, int> tasks_try_count{};
+
 struct DefaultHandler;
 
 /*
@@ -210,9 +211,6 @@ class AsyncTask : public Task {
         if (detach) {
             // this->set_repeat_forever(false);
             this->is_done_->set_value(true);
-            if (tasks_try_count.find(this) != tasks_try_count.end()) {
-                tasks_try_count.erase(this);
-            }
         }
         this->detach_ = detach;
     }
@@ -233,9 +231,6 @@ class AsyncTask : public Task {
         */
         DEBUG_PRINT("in task ~ fd = %d\n", this->fd_);
 
-        if (tasks_try_count.find(this) != tasks_try_count.end()) {
-            tasks_try_count.erase(this);
-        }
         delete this->is_done_;
 
         // release next task
@@ -417,6 +412,9 @@ class AsyncTask : public Task {
     std::string debug_str_{};
     __u64 user_data_{0};
     std::atomic<bool> is_cancel_{false};
+
+    // using atomic Just to ensure memory ordering. 
+    std::atomic<int> try_count_{0};
 };
 // FunctionTraits to extract function signature
 template <typename T>
@@ -487,8 +485,8 @@ struct DefaultHandler {
 
 /*
 
-    This function is the only entry point for users to create asynchronous IO tasks
-    You must pass in the file descriptor fd and provide the variable args,
+    This function is the only entry point for users to create asynchronous IO
+   tasks You must pass in the file descriptor fd and provide the variable args,
     which is a user-defined parameter》The function Func passed by the user,
     the first parameter must be of type KernelBufPtr to receive the IO result
     However, when the user passes in an argument, he does not need to pass
@@ -617,11 +615,9 @@ class IOHandler {
         task->__set_detach_and_done(false);
         task->is_cancel_ = false;
         DEBUG_PRINT("add TASK ok,fd = %d\n", task->fd_);
+
         if (task->repeat_when_failed()) {
-            if (task::tasks_try_count.find(task) ==
-                task::tasks_try_count.end()) {
-                task::tasks_try_count[task] = 0;
-            }
+            task->try_count_.store(0, std::memory_order_relaxed);
         }
 
         if (task->is_done_ != nullptr) {
@@ -664,9 +660,9 @@ class IOHandler {
                 }
                 /*
                     If a sqe is cancelled, then trigger cancel_cqe first and get
-                    it in cancel_cqe The task pointer of the canceled task, set the
-                    atomic variable is_cancel_ to true, and then the canceled sqe
-                    will Immediately trigger CQE, and then according to the
+                    it in cancel_cqe The task pointer of the canceled task, set
+                   the atomic variable is_cancel_ to true, and then the canceled
+                   sqe will Immediately trigger CQE, and then according to the
                     is_cancel_ judgment, change the state.
                 */
                 if (task_p->is_cancel_) {
@@ -802,16 +798,15 @@ class IOHandler {
     }
     template <typename Ret_, typename... UserArgs_>
     bool __handle_failed_task(task::AsyncTask<Ret_, UserArgs_...>* task_p) {
-        if (task_p->repeat_when_failed()) {
-            task::tasks_try_count[task_p]++;
-            if (task::tasks_try_count[task_p] < task_p->max_retry_count_) {
-                task_p->__set_task_state(task::TaskState::READY);
-                this->addTask(task_p);
-                return true;
-            }
+        int current_retry =
+            task_p->try_count_.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (current_retry < task_p->max_retry_count_) {
+            task_p->__set_task_state(task::TaskState::READY);
+            this->addTask(task_p);
+            return true;
         }
         task_p->set_debug_str("Task excute faild after retry");
-        task::tasks_try_count[task_p] == 0;
+        task_p->try_count_.store(0, std::memory_order_relaxed);
         task_p->__set_detach_and_done(true);
         std::atomic_thread_fence(std::memory_order_seq_cst);
         task_p->__set_task_state(task::TaskState::FAILED);

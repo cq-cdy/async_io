@@ -16,7 +16,7 @@ void example_read_handler(KernelBufPtr kbf) {
     printf("in example_read_handler ret = %d, fd = %d\n", num, fd);
     // foreach char data
     for (int i = 0; i < num; i++) {
-        printf("%c", kbf->buf_[i]);
+        printf("%c", (*kbf)[i]);
     }
     // set next readTask continue read
     auto readtask = createTaskWithHandler(fd, example_read_handler);

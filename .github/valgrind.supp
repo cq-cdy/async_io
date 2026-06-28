@@ -1,0 +1,13 @@
+{
+   liburing_init_supp
+   Memcheck:Leak
+   match-leak-kinds:reachable
+   fun:io_uring_queue_init
+   ...
+}
+{
+   liburing_mmap_supp
+   Memcheck:Param
+   msync(flags)
+   ...
+}

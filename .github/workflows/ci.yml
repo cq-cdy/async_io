@@ -1,0 +1,248 @@
+name: async_io CI
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # Ubuntu — multi-compiler, multi-build-type matrix
+  # ==========================================================================
+  ubuntu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        compiler:
+          - { cc: gcc-10, cxx: g++-10, pkg: g++-10 }
+          - { cc: gcc-12, cxx: g++-12, pkg: g++-12 }
+          - { cc: clang-14, cxx: clang++-14, pkg: clang-14 }
+          - { cc: clang-16, cxx: clang++-16, pkg: clang-16 }
+        build_type: [Debug, Release]
+        exclude:
+          - os: ubuntu-24.04
+            compiler: { cc: clang-14, cxx: clang++-14, pkg: clang-14 }
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ${{ matrix.compiler.pkg }} liburing-dev
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} \
+            -DTALON_BUILD_EXAMPLES=ON \
+            -DTALON_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build -j$(nproc) 2>&1 | tail -60
+
+      - name: Run unit tests
+        run: ctest --test-dir build -R "^unit/" --output-on-failure -j$(nproc)
+
+      - name: Run integration tests
+        run: ctest --test-dir build -R "^integration/" --output-on-failure --timeout 120 -j1
+
+      - name: Run adversarial tests
+        run: ctest --test-dir build -R "^adversarial/" --output-on-failure --timeout 60 -j$(nproc)
+
+      - name: Run stress tests
+        run: ctest --test-dir build -R "^stress/" --output-on-failure --timeout 120 -j$(nproc)
+
+  # ==========================================================================
+  # Alpine Linux — musl libc compatibility
+  # ==========================================================================
+  alpine:
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl dependencies
+        run: |
+          apk add --no-cache gcc g++ cmake make linux-headers \
+            liburing-dev musl-dev samurai
+
+      - name: Configure & Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
+            -DTALON_BUILD_EXAMPLES=OFF
+          cmake --build build -j$(nproc)
+
+      - name: Run tests on musl
+        run: |
+          ctest --test-dir build -R "^unit/" --output-on-failure
+          ctest --test-dir build -R "^integration/" --output-on-failure --timeout 120
+
+  # ==========================================================================
+  # CentOS Stream 9 — older glibc, enterprise environment
+  # ==========================================================================
+  centos:
+    runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CentOS dependencies
+        run: |
+          dnf install -y --nogpgcheck gcc gcc-c++ cmake make liburing-devel
+
+      - name: Build & test
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DTALON_BUILD_EXAMPLES=OFF
+          cmake --build build -j$(nproc)
+          ctest --test-dir build -R "^unit/" --output-on-failure
+          ctest --test-dir build -R "^integration/" --output-on-failure --timeout 120
+
+  # ==========================================================================
+  # Fedora Latest — bleeding-edge kernel and liburing
+  # ==========================================================================
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:40
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Fedora dependencies
+        run: |
+          dnf install -y --nogpgcheck gcc gcc-c++ cmake make liburing-devel
+
+      - name: Build & test
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DTALON_BUILD_EXAMPLES=OFF
+          cmake --build build -j$(nproc)
+          ctest --test-dir build -R "^unit/" --output-on-failure
+          ctest --test-dir build -R "^integration/" --output-on-failure --timeout 120
+
+  # ==========================================================================
+  # Sanitizers — ASAN + UBSAN
+  # ==========================================================================
+  sanitizers:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq g++-12 liburing-dev
+
+      - name: Configure with ASAN+UBSAN
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12 \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+            -DTALON_BUILD_EXAMPLES=OFF
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test with sanitizers
+        run: |
+          ctest --test-dir build -R "^unit/" --output-on-failure
+          ctest --test-dir build -R "^adversarial/" --output-on-failure --timeout 120
+          ctest --test-dir build -R "^stress/" --output-on-failure --timeout 120
+
+  # ==========================================================================
+  # Valgrind — memory leak and invalid access detection
+  # ==========================================================================
+  valgrind:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq g++-12 liburing-dev valgrind
+
+      - name: Build Debug
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12 \
+            -DTALON_BUILD_EXAMPLES=OFF
+          cmake --build build -j$(nproc)
+
+      - name: Valgrind — unit tests
+        run: |
+          for test_bin in build/tests/unit/test_*; do
+            if [ -x "$test_bin" ]; then
+              echo "=== Valgrind: $(basename $test_bin) ==="
+              valgrind --leak-check=full --error-exitcode=1 \
+                --show-leak-kinds=all --track-origins=yes \
+                --suppressions=.github/valgrind.supp \
+                "$test_bin" || exit 1
+            fi
+          done
+
+      - name: Valgrind — adversarial tests
+        run: |
+          for test_bin in build/tests/adversarial/test_memory_leak build/tests/adversarial/test_null_pointer build/tests/adversarial/test_double_submit; do
+            if [ -x "$test_bin" ]; then
+              echo "=== Valgrind: $(basename $test_bin) ==="
+              valgrind --leak-check=full --error-exitcode=1 \
+                --show-leak-kinds=all --track-origins=yes \
+                --suppressions=.github/valgrind.supp \
+                "$test_bin" || exit 1
+            fi
+          done
+
+  # ==========================================================================
+  # Static Analysis — clang-tidy
+  # ==========================================================================
+  clang-tidy:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-tidy-16 liburing-dev
+
+      - name: Generate compile_commands.json
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang-16 -DCMAKE_CXX_COMPILER=clang++-16 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DTALON_BUILD_EXAMPLES=OFF -DTALON_BUILD_TESTS=OFF
+
+      - name: Run clang-tidy
+        run: |
+          find include/talon -name '*.hpp' | while read f; do
+            clang-tidy-16 -p build "$f" \
+              -checks='-*,modernize-*,performance-*,bugprone-*' \
+              -header-filter='.*' 2>&1 | head -20 || true
+          done

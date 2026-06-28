@@ -371,7 +371,6 @@ async_io/
 │   ├── integration/                  # 7 io_uring integration tests
 │   ├── stress/                       # 5 concurrency/throughput tests
 │   └── adversarial/                  # 9 edge-case tests
-└── PROMPT.md                         # Development audit requirements
 ```
 
 ---

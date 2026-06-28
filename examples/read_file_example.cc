@@ -6,7 +6,6 @@
 // ============================================================================
 
 #include <fcntl.h>
-#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

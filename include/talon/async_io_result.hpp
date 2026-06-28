@@ -8,24 +8,23 @@
 #include <string>
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 namespace task {
 
 struct IOResult {
     IOResult(int io_ret, int event_fd, bool iodone, std::string err_msg = "")
-        : io_ret_(io_ret), event_fd_(event_fd), iodone_(iodone),
-          err_msg_(std::move(err_msg)) {}
+        : io_ret(io_ret), event_fd(event_fd), iodone(iodone),
+          err_msg(std::move(err_msg)) {}
 
-    [[nodiscard]] int io_ret() const noexcept { return io_ret_; }
-    [[nodiscard]] int event_fd() const noexcept { return event_fd_; }
-    [[nodiscard]] bool iodone() const noexcept { return iodone_; }
-    [[nodiscard]] const std::string& err_msg() const noexcept { return err_msg_; }
+    [[nodiscard]] int IoRet() const noexcept { return io_ret; }
+    [[nodiscard]] int EventFd() const noexcept { return event_fd; }
+    [[nodiscard]] bool IoDone() const noexcept { return iodone; }
+    [[nodiscard]] const std::string& ErrMsg() const noexcept { return err_msg; }
 
-private:
-    int io_ret_{};
-    int event_fd_{};
-    bool iodone_{false};
-    std::string err_msg_;
+    int io_ret{};
+    int event_fd{};
+    bool iodone{false};
+    std::string err_msg;
 };
 
 // Inline signal/wait mechanism replacing std::promise<bool>.  Eliminates two
@@ -80,7 +79,7 @@ private:
 };
 
 }  // namespace task
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_RESULT_HPP_

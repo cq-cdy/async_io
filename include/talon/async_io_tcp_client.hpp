@@ -13,7 +13,7 @@
 #include "async_io_task.hpp"
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 
 class IOHandler;
 
@@ -49,22 +49,22 @@ public:
         }
 
         auto handler = [](task::KernelBuf* buf) {
-            int r = buf->bytes_transferred();
-            int fd = buf->active_file_descriptor();
+            int r = buf->BytesTransferred();
+            int fd = buf->ActiveFileDescriptor();
             if (r < 0) DebugLog("Connect failed fd=%d: %s\n", fd, strerror(-r));
             else       DebugLog("Connected fd=%d\n", fd);
         };
 
         auto* task = task::CreateTaskWithHandler(sockfd, handler,
                                                   std::forward<Args>(handler_args)...);
-        task->set_task_type(task::TaskType::kConnect);
-        task->set_timeout(config_.connect_timeout_ms);
-        task->buffer()->resize(sizeof(addr));
-        std::memcpy(task->buffer()->data(), &addr, sizeof(addr));
+        task.SetTaskType(task::TaskType::kConnect);
+        task.SetTimeout(config_.connect_timeout_ms);
+        task->Buffer()->Resize(sizeof(addr));
+        std::memcpy(task->Buffer()->Data(), &addr, sizeof(addr));
         return task;
     }
 
-    [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
+    [[nodiscard]] const std::string& LastError() const noexcept { return last_error_; }
 
 private:
     IOHandler& io_;
@@ -72,7 +72,7 @@ private:
     std::string last_error_;
 };
 
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_TCP_CLIENT_HPP_

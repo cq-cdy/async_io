@@ -12,12 +12,12 @@ using namespace talon::task;
 
 TEST_CASE("TCP server start and stop") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     TcpServer server(io);
-    CHECK(server.listen_fd() == -1);
+    CHECK(server.ListenFd() == -1);
     CHECK(server.Start(19999));
-    CHECK(server.listen_fd() >= 0);
+    CHECK(server.ListenFd() >= 0);
 
     io.RequestShutdown();
     io.Join();
@@ -25,16 +25,16 @@ TEST_CASE("TCP server start and stop") {
 
 TEST_CASE("TCP server start on invalid port fails gracefully") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     TcpServer server(io);
     // Port 0 is technically valid (assigns random), but we test that
     // Start returns a bool and last_error() is meaningful.
     bool started = server.Start(8080);
     if (started) {
-        CHECK(server.listen_fd() >= 0);
+        CHECK(server.ListenFd() >= 0);
     } else {
-        CHECK_FALSE(server.last_error().empty());
+        CHECK_FALSE(server.LastError().empty());
     }
 
     io.RequestShutdown();
@@ -43,7 +43,7 @@ TEST_CASE("TCP server start on invalid port fails gracefully") {
 
 TEST_CASE("TCP client connect to refused port") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     TcpClient client(io);
 
@@ -66,12 +66,12 @@ TEST_CASE("TCP client connect to refused port") {
 
 TEST_CASE("TCP client connect invalid IP") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     TcpClient client(io);
     auto* task = client.Connect("invalid.ip.address", 8080);
     CHECK(task == nullptr);
-    CHECK_FALSE(client.last_error().empty());
+    CHECK_FALSE(client.LastError().empty());
 
     io.RequestShutdown();
     io.Join();
@@ -79,14 +79,14 @@ TEST_CASE("TCP client connect invalid IP") {
 
 TEST_CASE("TCP client connect with handler args") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     TcpClient client(io);
 
     std::atomic<bool> called{false};
     auto handler = [&](KernelBuf* buf) {
         called.store(true, std::memory_order_release);
-        int r = buf->bytes_transferred();
+        int r = buf->BytesTransferred();
         (void)r;
     };
 
@@ -105,14 +105,14 @@ TEST_CASE("TCP client connect with handler args") {
 
 TEST_CASE("TCP server accept task creation") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     TcpServer server(io);
     REQUIRE(server.Start(19996));
 
     std::atomic<bool> accepted{false};
     auto accept_handler = [&](KernelBuf* buf) {
-        int client_fd = buf->bytes_transferred();
+        int client_fd = buf->BytesTransferred();
         if (client_fd >= 0) {
             accepted.store(true, std::memory_order_release);
             close(client_fd);
@@ -121,8 +121,8 @@ TEST_CASE("TCP server accept task creation") {
 
     auto* at = server.CreateAcceptTask(accept_handler);
     CHECK(at != nullptr);
-    CHECK(at->type() == TaskType::kAccept);
-    CHECK(at->repeat_forever());
+    CHECK(at->Type() == TaskType::kAccept);
+    CHECK(at->RepeatForever());
     io.AddTask(at);
     io.Flush();
 

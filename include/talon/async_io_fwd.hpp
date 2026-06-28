@@ -5,7 +5,7 @@
 #include <memory>
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 
 struct AsyncIoConfig;
 
@@ -40,7 +40,7 @@ class BufferPool;
 
 }  // namespace memory
 
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_FWD_HPP_

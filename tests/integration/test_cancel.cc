@@ -12,7 +12,7 @@ using namespace talon::task;
 
 TEST_CASE("cancel task that was submitted") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/random", O_RDONLY | O_NONBLOCK);
     REQUIRE(fd >= 0);
@@ -21,13 +21,13 @@ TEST_CASE("cancel task that was submitted") {
     auto h = [&](KernelBuf*) { handler_called.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
-    t->set_timeout(5000);
+    t.SetTaskType(TaskType::kRead);
+    t.SetTimeout(5000);
     io.AddTask(t);
     io.Flush();
 
     // Immediately cancel.
-    t->Cancel(io.iouring());
+    t->Cancel(io.IoUring());
 
     // Wait a bit.
     for (int i = 0; i < 200; i++)
@@ -40,7 +40,7 @@ TEST_CASE("cancel task that was submitted") {
 
 TEST_CASE("cancel with nullptr uring returns zero") {
     auto* t = CreateTaskWithHandler(1);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     __u64 r = t->Cancel(nullptr);
     CHECK(r == 0);
     delete t;

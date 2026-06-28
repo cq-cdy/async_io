@@ -18,7 +18,7 @@
 #include <utility>
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 namespace task {
 
 // ============================================================================
@@ -168,38 +168,36 @@ public:
         ::operator delete(ptr);
     }
 
-    // --- Accessors (snake_case per Google style for short inline accessors) ---
-    [[nodiscard]] TaskState state() const noexcept { return task_state_.load(std::memory_order_acquire); }
-    [[nodiscard]] TaskType type() const noexcept { return task_type_; }
-    [[nodiscard]] int fd() const noexcept { return fd_; }
-    [[nodiscard]] KernelBuf* buffer() noexcept { return buffer_.get(); }
-    [[nodiscard]] const KernelBuf* buffer() const noexcept { return buffer_.get(); }
-    [[nodiscard]] bool repeat_forever() const noexcept { return repeat_forever_; }
-    [[nodiscard]] bool repeat_when_failed() const noexcept { return max_retry_count_ > 0; }
-    [[nodiscard]] const std::string& debug_str() const noexcept { return debug_str_; }
-    [[nodiscard]] Task* next_task() const noexcept { return next_.get(); }
+    [[nodiscard]] TaskState State() const noexcept { return task_state_.load(std::memory_order_acquire); }
+    [[nodiscard]] TaskType Type() const noexcept { return task_type_; }
+    [[nodiscard]] int Fd() const noexcept { return fd_; }
+    [[nodiscard]] KernelBuf* Buffer() noexcept { return buffer_.get(); }
+    [[nodiscard]] const KernelBuf* Buffer() const noexcept { return buffer_.get(); }
+    [[nodiscard]] bool RepeatForever() const noexcept { return repeat_forever_; }
+    [[nodiscard]] bool RepeatWhenFailed() const noexcept { return max_retry_count_ > 0; }
+    [[nodiscard]] const std::string& DebugStr() const noexcept { return debug_str_; }
+    [[nodiscard]] Task* NextTask() const noexcept { return next_.get(); }
 
-    // --- Mutators (snake_case) ---
-    void set_task_type(TaskType t) noexcept { task_type_ = t; }
-    void set_timeout(int ms) noexcept { timeout_ms_ = ms; }
-    void set_max_retry_count(int n) noexcept { max_retry_count_ = n; }
-    void set_debug_str(std::string s) noexcept { debug_str_ = std::move(s); }
-    void set_repeat_forever(bool v) noexcept {
+    void SetTaskType(TaskType t) noexcept { task_type_ = t; }
+    void SetTimeout(int ms) noexcept { timeout_ms_ = ms; }
+    void SetMaxRetryCount(int n) noexcept { max_retry_count_ = n; }
+    void SetDebugStr(std::string s) noexcept { debug_str_ = std::move(s); }
+    void SetRepeatForever(bool v) noexcept {
         if (v) { detach_.store(false, std::memory_order_release); timeout_ms_ = 0; }
         repeat_forever_ = v;
     }
-    void set_repeat_when_failed(bool v) noexcept { repeat_when_failed_ = v; }
-    void set_check_buffer(CheckBufferFunc f) noexcept { check_buffer_ = std::move(f); }
-    void ResetBuffer() noexcept { if (buffer_) buffer_->resize(0); }
+    void SetRepeatWhenFailed(bool v) noexcept { repeat_when_failed_ = v; }
+    void SetCheckBuffer(CheckBufferFunc f) noexcept { check_buffer_ = std::move(f); }
+    void ResetBuffer() noexcept { if (buffer_) { buffer_->Resize(0); } }
     void SetBuffer(KernelBufPtr buf) noexcept { buffer_ = std::move(buf); }
 
     void DeepCopyBufferFrom(const KernelBuf& src) noexcept {
-        buffer_ = std::make_unique<KernelBuf>(src.size_);
-        if (src.size_ > 0) std::memcpy(buffer_->data(), src.data(), src.size_);
+        buffer_ = std::make_unique<KernelBuf>(src.size);
+        if (src.size > 0) { std::memcpy(buffer_->Data(), src.Data(), src.size); }
     }
 
     template <typename Ret_, typename... UserArgs_>
-    void set_next_task(AsyncTask<Ret_, UserArgs_...>* next) noexcept { next_.reset(next); }
+    void SetNextTask(AsyncTask<Ret_, UserArgs_...>* next) noexcept { next_.reset(next); }
     Task* ReleaseNextTask() noexcept { return next_.release(); }
 
     // --- I/O Operations ---
@@ -207,15 +205,15 @@ public:
     // Synchronous wait for completion result. Uses DoneState; zero heap allocations.
     [[nodiscard]] IOResult WaitForCompletion(int timeout_ms = -1) noexcept {
         bool is_detached = detach_.load(std::memory_order_acquire);
-        IOResult ret(-1, buffer_ ? buffer_->active_file_descriptor() : -1, is_detached, "io done");
-        if (!is_detached) { ret.err_msg_ = "task not detached from execute queue yet"; return ret; }
+        IOResult ret(-1, buffer_ ? buffer_->ActiveFileDescriptor() : -1, is_detached, "io done");
+        if (!is_detached) { ret.err_msg = "task not detached from execute queue yet"; return ret; }
         if (!done_state_.Wait(timeout_ms)) {
-            if (timeout_ms > 0) ret.err_msg_ = "WaitForCompletion: timeout after " + std::to_string(timeout_ms) + "ms";
-            else if (timeout_ms == 0) ret.err_msg_ = "WaitForCompletion: not yet ready (timeout=0)";
+            if (timeout_ms > 0) { ret.err_msg = "WaitForCompletion: timeout after " + std::to_string(timeout_ms) + "ms"; }
+            else if (timeout_ms == 0) { ret.err_msg = "WaitForCompletion: not yet ready (timeout=0)"; }
             return ret;
         }
-        ret.io_ret_ = buffer_ ? buffer_->bytes_transferred() : -1;
-        ret.err_msg_ = "IO result consumed";
+        ret.io_ret = buffer_ ? buffer_->BytesTransferred() : -1;
+        ret.err_msg = "IO result consumed";
         return ret;
     }
 
@@ -300,7 +298,7 @@ template <typename Func_, typename... Args_>
 }
 
 }  // namespace task
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_TASK_HPP_

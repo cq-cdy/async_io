@@ -17,7 +17,7 @@ using namespace talon::task;
 
 TEST_CASE("signal: InstallSignalHandlers succeeds") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     bool installed = io.InstallSignalHandlers();
     CHECK(installed);
@@ -28,13 +28,13 @@ TEST_CASE("signal: InstallSignalHandlers succeeds") {
 
 TEST_CASE("signal: only one IOHandler can install signal handlers") {
     IOHandler io1;
-    REQUIRE(io1.initialized());
+    REQUIRE(io1.Initialized());
 
     bool first = io1.InstallSignalHandlers();
     CHECK(first);
 
     IOHandler io2;
-    REQUIRE(io2.initialized());
+    REQUIRE(io2.Initialized());
 
     bool second = io2.InstallSignalHandlers();
     CHECK_FALSE(second);  // Already taken by io1.
@@ -47,7 +47,7 @@ TEST_CASE("signal: only one IOHandler can install signal handlers") {
 
 TEST_CASE("signal: RequestShutdown is safe to call multiple times") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     io.RequestShutdown();
     io.RequestShutdown();  // Double call.
@@ -59,7 +59,7 @@ TEST_CASE("signal: RequestShutdown is safe to call multiple times") {
 
 TEST_CASE("signal: shutdown while tasks are pending") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -70,7 +70,7 @@ TEST_CASE("signal: shutdown while tasks are pending") {
     // Submit tasks but don't flush — shutdown should still work.
     for (int i = 0; i < 100; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();
@@ -89,7 +89,7 @@ TEST_CASE("signal: shutdown while tasks are pending") {
 
 TEST_CASE("signal: OnSignal static method is safe") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     io.InstallSignalHandlers();
 
@@ -105,7 +105,7 @@ TEST_CASE("signal: OnSignal static method is safe") {
 
 TEST_CASE("signal: shutdown then join twice is safe") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     io.RequestShutdown();
     io.Join();

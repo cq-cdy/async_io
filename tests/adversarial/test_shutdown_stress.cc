@@ -12,7 +12,7 @@ using namespace talon::task;
 
 TEST_CASE("shutdown while tasks are in flight") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -23,7 +23,7 @@ TEST_CASE("shutdown while tasks are in flight") {
     // Submit many tasks.
     for (int i = 0; i < 200; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();
@@ -40,7 +40,7 @@ TEST_CASE("shutdown while tasks are in flight") {
 
 TEST_CASE("double shutdown is safe") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     io.RequestShutdown();
     io.RequestShutdown();  // Double shutdown — should be safe.
@@ -51,7 +51,7 @@ TEST_CASE("double shutdown is safe") {
 
 TEST_CASE("shutdown without any tasks submitted") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     // No tasks — just start and stop.
     io.RequestShutdown();
@@ -63,7 +63,7 @@ TEST_CASE("shutdown without any tasks submitted") {
 TEST_CASE("rapid init shutdown cycles") {
     for (int i = 0; i < 10; i++) {
         IOHandler io;
-        if (io.initialized()) {
+        if (io.Initialized()) {
             io.RequestShutdown();
             io.Join();
         }

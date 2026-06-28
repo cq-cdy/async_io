@@ -12,7 +12,7 @@ using namespace talon::task;
 
 TEST_CASE("repeat forever re-submits on success") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -21,8 +21,8 @@ TEST_CASE("repeat forever re-submits on success") {
     auto h = [&](KernelBuf*) { count.fetch_add(1, std::memory_order_relaxed); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
-    t->set_repeat_forever(true);
+    t.SetTaskType(TaskType::kRead);
+    t.SetRepeatForever(true);
     io.AddTask(t);
     io.Flush();
 
@@ -39,7 +39,7 @@ TEST_CASE("repeat forever re-submits on success") {
 
 TEST_CASE("repeat forever set to false is one-shot") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -48,7 +48,7 @@ TEST_CASE("repeat forever set to false is one-shot") {
     auto h = [&](KernelBuf*) { count.fetch_add(1, std::memory_order_relaxed); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     // repeat_forever is false by default — should fire once.
     io.AddTask(t);
     io.Flush();

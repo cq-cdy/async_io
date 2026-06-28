@@ -11,20 +11,20 @@ using namespace talon::task;
 IOHandler io;
 
 void ReadChunkHandler(KernelBuf* buf) {
-    int bytes = buf->bytes_transferred();
-    int fd = buf->active_file_descriptor();
+    int bytes = buf->BytesTransferred();
+    int fd = buf->ActiveFileDescriptor();
     printf("ReadChunkHandler: %d bytes from fd=%d\n", bytes, fd);
     for (int i = 0; i < bytes; i++) printf("%c", (*buf)[i]);
 
     auto* next = CreateTaskWithHandler(fd, ReadChunkHandler);
-    next->set_task_type(TaskType::kRead);
-    next->buffer()->set_fd_offset(buf->fd_offset() + bytes);
+    next.SetTaskType(TaskType::kRead);
+    next->Buffer().SetFdOffset(buf->FdOffset() + bytes);
     io.AddTask(next);
 }
 
 int main() {
-    if (!io.initialized()) {
-        fprintf(stderr, "IOHandler init failed: %s\n", io.init_error().c_str());
+    if (!io.Initialized()) {
+        fprintf(stderr, "IOHandler init failed: %s\n", io.InitError().c_str());
         return EXIT_FAILURE;
     }
 
@@ -32,7 +32,7 @@ int main() {
     if (fd < 0) { perror("open"); return EXIT_FAILURE; }
 
     auto* task = CreateTaskWithHandler(fd, ReadChunkHandler);
-    task->set_task_type(TaskType::kRead);
+    task.SetTaskType(TaskType::kRead);
     io.AddTask(task);
 
     // Run until the file is fully read (chunks chain themselves).

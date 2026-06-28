@@ -21,7 +21,7 @@
 #include "async_io_task.hpp"
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 
 class IOHandler {
     friend class TcpServer;
@@ -95,22 +95,22 @@ public:
     }
 
     // --- Status ---
-    [[nodiscard]] bool initialized() const noexcept { return init_error_.empty(); }
-    [[nodiscard]] const std::string& init_error() const noexcept { return init_error_; }
-    [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
-    [[nodiscard]] io_uring* iouring() const noexcept { return uring_.get(); }
-    [[nodiscard]] const AsyncIoConfig& config() const noexcept { return config_; }
+    [[nodiscard]] bool Initialized() const noexcept { return init_error_.empty(); }
+    [[nodiscard]] const std::string& InitError() const noexcept { return init_error_; }
+    [[nodiscard]] const std::string& LastError() const noexcept { return last_error_; }
+    [[nodiscard]] io_uring* IoUring() const noexcept { return uring_.get(); }
+    [[nodiscard]] const AsyncIoConfig& Config() const noexcept { return config_; }
 
     // --- Backpressure / Load ---
     // Returns the current number of in-flight I/O operations.  Useful for
     // implementing application-level flow control alongside max_inflight_ops.
-    [[nodiscard]] int64_t inflight_count() const noexcept {
+    [[nodiscard]] int64_t InflightCount() const noexcept {
         return inflight_count_.load(std::memory_order_acquire);
     }
 
     // Returns true when the inflight limit is configured and currently
     // saturated — callers should apply back-off before retrying AddTask.
-    [[nodiscard]] bool backpressure_active() const noexcept {
+    [[nodiscard]] bool BackpressureActive() const noexcept {
         int limit = config_.max_inflight_ops;
         return limit > 0 && inflight_count_.load(std::memory_order_acquire) >= limit;
     }
@@ -121,7 +121,7 @@ public:
     [[nodiscard]] bool AddTask(task::AsyncTask<Ret_, UserArgs_...>* task) {
         if (task == nullptr) { DebugLog("AddTask: null\n"); return false; }
         if (!TryTransitionToSubmitted(task)) {
-            task->set_debug_str("failed: already executing");
+            task.SetDebugStr("failed: already executing");
             task->detach_.store(false, std::memory_order_release);
             return false;
         }
@@ -151,7 +151,7 @@ public:
         task->MarkDetachedAndComplete(false);
         task->is_cancel_.store(false, std::memory_order_release);
         DebugLog("AddTask ok, fd=%d\n", task->fd_);
-        if (task->repeat_when_failed()) task->try_count_.store(0, std::memory_order_relaxed);
+        if (task->RepeatWhenFailed()) task->try_count_.store(0, std::memory_order_relaxed);
         task->done_state_.Reset();
         SubmitTask(task);
         AutoFlush();
@@ -201,7 +201,7 @@ private:
     void DispatchCqe(task::AsyncTask<>* tp, task::EventFlag et, int res) {
         auto st = tp->task_state_.load(std::memory_order_acquire);
         if (st != task::TaskState::kSubmitted && st != task::TaskState::kReady) {
-            DebugLog("Skip CQE fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).data());
+            DebugLog("Skip CQE fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).Data());
             return;  // Stale CQE — inflight was already decremented.
         }
         if (tp->is_cancel_.load(std::memory_order_acquire)) {
@@ -245,22 +245,22 @@ private:
 
         switch (task->task_type_) {
             case task::TaskType::kRead:
-                io_uring_prep_read(sqe, task->fd_, task->buffer_->data(),
-                    static_cast<unsigned>(task->buffer_->size_),
-                    static_cast<__u64>(task->buffer_->fd_offset())); break;
+                io_uring_prep_read(sqe, task->fd_, task->buffer_->Data(),
+                    static_cast<unsigned>(task->buffer_->size),
+                    static_cast<__u64>(task->buffer_->FdOffset())); break;
             case task::TaskType::kWrite:
-                io_uring_prep_write(sqe, task->fd_, task->buffer_->data(),
-                    static_cast<unsigned>(task->buffer_->size_),
-                    static_cast<__u64>(task->buffer_->fd_offset())); break;
+                io_uring_prep_write(sqe, task->fd_, task->buffer_->Data(),
+                    static_cast<unsigned>(task->buffer_->size),
+                    static_cast<__u64>(task->buffer_->FdOffset())); break;
             case task::TaskType::kAccept:
                 io_uring_prep_accept(sqe, task->fd_, nullptr, nullptr, SOCK_NONBLOCK); break;
             case task::TaskType::kConnect:
                 HandleConnect(task, sqe); break;
             default:
                 DebugLog("SubmitTask: unsupported type %s fd=%d\n",
-                    task::TaskTypeName(task->task_type_).data(), task->fd_);
-                task->buffer_->set_bytes_transferred(-EINVAL);
-                task->buffer_->set_active_file_descriptor(task->fd_);
+                    task::TaskTypeName(task->task_type_).Data(), task->fd_);
+                task->buffer_->SetBytesTransferred(-EINVAL);
+                task->buffer_->SetActiveFileDescriptor(task->fd_);
                 QueueFailedTask(task); return;
         }
 
@@ -295,8 +295,8 @@ private:
     template <typename Ret_, typename... UserArgs_>
     void HandleNormalEvent(task::AsyncTask<Ret_, UserArgs_...>* tp, int res) {
         DebugLog("HandleNormalEvent fd=%d res=%d\n", tp->fd_, res);
-        tp->buffer_->set_bytes_transferred(res);
-        tp->buffer_->set_active_file_descriptor(tp->fd_);
+        tp->buffer_->SetBytesTransferred(res);
+        tp->buffer_->SetActiveFileDescriptor(tp->fd_);
 
         if (res < 0) {
             if (res == -EAGAIN || res == -EWOULDBLOCK) {
@@ -304,7 +304,7 @@ private:
             }
             if (res == -ECANCELED) {
                 if (tp->timeout_ms_ > 0) HandleTimeoutEvent(tp);
-                else { tp->set_debug_str("cancelled by kernel");
+                else { tp.SetDebugStr("cancelled by kernel");
                        tp->MarkDetachedAndComplete(true);
                        tp->SetTaskState(task::TaskState::kCanceled); delete tp; }
                 return;
@@ -315,18 +315,18 @@ private:
         if (res == 0) { HandleConnectionClose(tp); return; }
         tp->ExecuteCompletionHandler();
 
-        if (tp->repeat_forever()) { tp->SetTaskState(task::TaskState::kSuccess); AddTask(tp); }
+        if (tp->RepeatForever()) { tp->SetTaskState(task::TaskState::kSuccess); AddTask(tp); }
         else { tp->SetTaskState(task::TaskState::kSuccess);
                tp->detach_.store(true, std::memory_order_release); }
 
-        if (tp->next_task()) { auto* n = tp->ReleaseNextTask(); AddTask(static_cast<task::AsyncTask<>*>(n)); }
-        if (!tp->repeat_forever() && !tp->next_task()) tp->MarkDetachedAndComplete(true);
+        if (tp->NextTask()) { auto* n = tp->ReleaseNextTask(); AddTask(static_cast<task::AsyncTask<>*>(n)); }
+        if (!tp->RepeatForever() && !tp->NextTask()) tp->MarkDetachedAndComplete(true);
     }
 
     template <typename Ret_, typename... UserArgs_>
     void HandleErrorEvent(task::AsyncTask<Ret_, UserArgs_...>* tp, int res) {
-        tp->buffer_->set_bytes_transferred(res);
-        tp->buffer_->set_active_file_descriptor(tp->fd_);
+        tp->buffer_->SetBytesTransferred(res);
+        tp->buffer_->SetActiveFileDescriptor(tp->fd_);
         HandleFailedTask(tp);
     }
 
@@ -334,7 +334,7 @@ private:
     void HandleCancelEvent(task::AsyncTask<Ret_, UserArgs_...>* tp) {
         tp->is_cancel_.store(true, std::memory_order_release);
         DebugLog("Canceled fd=%d\n", tp->fd_);
-        tp->set_debug_str("cancelled");
+        tp.SetDebugStr("cancelled");
     }
 
     template <typename Ret_, typename... UserArgs_>
@@ -347,7 +347,7 @@ private:
         std::atomic_thread_fence(std::memory_order_seq_cst);
         tp->SetTaskState(task::TaskState::kSuccess);
         // Process chained next task before deletion, if any.
-        if (tp->next_task()) {
+        if (tp->NextTask()) {
             auto* n = tp->ReleaseNextTask();
             AddTask(static_cast<task::AsyncTask<>*>(n));
         }
@@ -358,10 +358,10 @@ private:
     bool HandleTimeoutTask(task::AsyncTask<Ret_, UserArgs_...>* tp) {
         auto st = tp->task_state_.load(std::memory_order_acquire);
         if (st != task::TaskState::kSubmitted && st != task::TaskState::kReady) {
-            DebugLog("HandleTimeoutTask skip fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).data());
+            DebugLog("HandleTimeoutTask skip fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).Data());
             return false;
         }
-        tp->set_debug_str("timed out");
+        tp.SetDebugStr("timed out");
         DebugLog("Timeout fd=%d\n", tp->fd_);
         tp->MarkDetachedAndComplete(true);
         std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -373,7 +373,7 @@ private:
     bool HandleFailedTask(task::AsyncTask<Ret_, UserArgs_...>* tp) {
         int cur = tp->try_count_.fetch_add(1, std::memory_order_relaxed) + 1;
         if (cur < tp->max_retry_count_) { tp->SetTaskState(task::TaskState::kReady); AddTask(tp); return true; }
-        tp->set_debug_str("failed after " + std::to_string(cur) + " retries");
+        tp.SetDebugStr("failed after " + std::to_string(cur) + " retries");
         tp->try_count_.store(0, std::memory_order_relaxed);
         tp->MarkDetachedAndComplete(true);
         std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -392,20 +392,20 @@ private:
     template <typename Ret_, typename... UserArgs_>
     void HandleConnect(task::AsyncTask<Ret_, UserArgs_...>* task, io_uring_sqe* sqe) {
         if (!ValidateConnectTask(task)) {
-            task->buffer_->set_bytes_transferred(-EINVAL);
-            task->buffer_->set_active_file_descriptor(task->fd_);
+            task->buffer_->SetBytesTransferred(-EINVAL);
+            task->buffer_->SetActiveFileDescriptor(task->fd_);
             QueueFailedTask(task); return;
         }
-        auto* addr = reinterpret_cast<sockaddr_in*>(task->buffer_->data());
+        auto* addr = reinterpret_cast<sockaddr_in*>(task->buffer_->Data());
         io_uring_prep_connect(sqe, task->fd_, reinterpret_cast<sockaddr*>(addr), sizeof(sockaddr_in));
     }
 
     template <typename Ret_, typename... UserArgs_>
     bool ValidateConnectTask(task::AsyncTask<Ret_, UserArgs_...>* task) {
         if (task->fd_ <= 0) return false;
-        auto* buf = task->buffer();
-        if (buf == nullptr || buf->size_ < sizeof(sockaddr_in)) return false;
-        auto* addr = reinterpret_cast<sockaddr_in*>(buf->data());
+        auto* buf = task->Buffer();
+        if (buf == nullptr || buf->size < sizeof(sockaddr_in)) return false;
+        auto* addr = reinterpret_cast<sockaddr_in*>(buf->Data());
         if (addr->sin_family != AF_INET) return false;
         if (ntohs(addr->sin_port) == 0 || ntohs(addr->sin_port) > 65535) return false;
         char ip[INET_ADDRSTRLEN];
@@ -448,7 +448,7 @@ private:
 // Static member definition (header-only library, C++17 inline variable).
 inline std::atomic<IOHandler*> IOHandler::active_instance_{nullptr};
 
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_HANDLER_HPP_

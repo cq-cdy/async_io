@@ -27,7 +27,7 @@ std::string MakeTempFile(const char* content, size_t len) {
 
 TEST_CASE("file read to /dev/null") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -35,12 +35,12 @@ TEST_CASE("file read to /dev/null") {
     std::atomic<bool> done{false};
     int bytes_read = -1;
     auto h = [&](KernelBuf* b) {
-        bytes_read = b->bytes_transferred();
+        bytes_read = b->BytesTransferred();
         done.store(true, std::memory_order_release);
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -58,7 +58,7 @@ TEST_CASE("file read small temp file") {
     REQUIRE_FALSE(path.empty());
 
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open(path.c_str(), O_RDONLY);
     REQUIRE(fd >= 0);
@@ -66,12 +66,12 @@ TEST_CASE("file read small temp file") {
     std::atomic<bool> done{false};
     int bytes_read = -1;
     auto h = [&](KernelBuf* b) {
-        bytes_read = b->bytes_transferred();
+        bytes_read = b->BytesTransferred();
         done.store(true, std::memory_order_release);
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -90,7 +90,7 @@ TEST_CASE("file write and read back") {
     REQUIRE_FALSE(path.empty());
 
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     // Write phase.
     {
@@ -100,15 +100,15 @@ TEST_CASE("file write and read back") {
         std::atomic<bool> wdone{false};
         int written = -1;
         auto wh = [&](KernelBuf* b) {
-            written = b->bytes_transferred();
+            written = b->BytesTransferred();
             wdone.store(true, std::memory_order_release);
         };
 
         auto* wt = CreateTaskWithHandler(fd, wh);
-        wt->set_task_type(TaskType::kWrite);
+        wt.SetTaskType(TaskType::kWrite);
         const char* msg = "test data";
-        wt->buffer()->resize(std::strlen(msg));
-        std::memcpy(wt->buffer()->data(), msg, std::strlen(msg));
+        wt->Buffer()->Resize(std::strlen(msg));
+        std::memcpy(wt->Buffer()->Data(), msg, std::strlen(msg));
         io.AddTask(wt);
         io.Flush();
 
@@ -127,12 +127,12 @@ TEST_CASE("file write and read back") {
         std::atomic<bool> rdone{false};
         int bytes_read = -1;
         auto rh = [&](KernelBuf* b) {
-            bytes_read = b->bytes_transferred();
+            bytes_read = b->BytesTransferred();
             rdone.store(true, std::memory_order_release);
         };
 
         auto* rt = CreateTaskWithHandler(fd, rh);
-        rt->set_task_type(TaskType::kRead);
+        rt.SetTaskType(TaskType::kRead);
         io.AddTask(rt);
         io.Flush();
 
@@ -153,7 +153,7 @@ TEST_CASE("file read empty file") {
     REQUIRE_FALSE(path.empty());
 
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open(path.c_str(), O_RDONLY);
     REQUIRE(fd >= 0);
@@ -161,12 +161,12 @@ TEST_CASE("file read empty file") {
     std::atomic<bool> done{false};
     int bytes_read = -99;
     auto h = [&](KernelBuf* b) {
-        bytes_read = b->bytes_transferred();
+        bytes_read = b->BytesTransferred();
         done.store(true, std::memory_order_release);
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -182,17 +182,17 @@ TEST_CASE("file read empty file") {
 
 TEST_CASE("file read bad fd") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     std::atomic<bool> done{false};
     int res = 0;
     auto h = [&](KernelBuf* b) {
-        res = b->bytes_transferred();
+        res = b->BytesTransferred();
         done.store(true, std::memory_order_release);
     };
 
     auto* t = CreateTaskWithHandler(-1, h);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -209,7 +209,7 @@ TEST_CASE("file IO many sequential operations") {
     REQUIRE_FALSE(path.empty());
 
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     std::atomic<int> count{0};
     auto handler = [&](KernelBuf*) { count.fetch_add(1, std::memory_order_relaxed); };
@@ -220,7 +220,7 @@ TEST_CASE("file IO many sequential operations") {
     // Submit 50 read tasks (each will read 0 bytes from empty file = EOF).
     for (int i = 0; i < 50; i++) {
         auto* t = CreateTaskWithHandler(fd, handler);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();

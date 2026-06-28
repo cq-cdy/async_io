@@ -5,14 +5,14 @@
 using namespace talon;
 
 TEST_CASE("adversarial AddTask(nullptr)") {
-    IOHandler io; if (!io.initialized()) return;
+    IOHandler io; if (!io.Initialized()) return;
     CHECK_FALSE(io.AddTask(nullptr));
     io.RequestShutdown(); io.Join();
 }
 
 TEST_CASE("adversarial Cancel with nullptr uring") {
     auto* t = task::CreateTaskWithHandler(1);
-    t->set_task_type(task::TaskType::kRead);
+    t.SetTaskType(task::TaskType::kRead);
     CHECK(t->Cancel(nullptr) == 0);
     delete t;
 }
@@ -20,7 +20,7 @@ TEST_CASE("adversarial Cancel with nullptr uring") {
 TEST_CASE("adversarial WaitForCompletion never submitted") {
     auto* t = task::CreateTaskWithHandler(0);
     auto r = t->WaitForCompletion(100);
-    CHECK_FALSE(r.iodone());
-    CHECK(r.err_msg().find("not detached") != std::string::npos);
+    CHECK_FALSE(r.IoDone());
+    CHECK(r.ErrMsg().find("not detached") != std::string::npos);
     delete t;
 }

@@ -13,7 +13,7 @@
 #include <vector>
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 namespace task {
 
 class IOHandler;
@@ -21,66 +21,66 @@ class IOHandler;
 struct KernelBuf {
     friend class talon::IOHandler;
 
-    explicit KernelBuf(size_t size) : size_(size) { AllocateStorage(size); }
+    explicit KernelBuf(size_t sz) : size(sz) { AllocateStorage(sz); }
 
     KernelBuf(const KernelBuf&) = delete;
     KernelBuf& operator=(const KernelBuf&) = delete;
 
     KernelBuf(KernelBuf&& other) noexcept
-        : size_(other.size_), offset_(other.offset_), io_ret_(other.io_ret_) {
+        : size(other.size), offset(other.offset), io_ret_(other.io_ret_) {
         MoveStorageFrom(other);
-        other.size_ = 0;
-        other.offset_ = 0;
+        other.size = 0;
+        other.offset = 0;
     }
 
     KernelBuf& operator=(KernelBuf&& other) noexcept {
         if (this != &other) {
             DestroyStorage();
-            size_ = other.size_;
-            offset_ = other.offset_;
+            size = other.size;
+            offset = other.offset;
             io_ret_ = other.io_ret_;
             MoveStorageFrom(other);
-            other.size_ = 0;
-            other.offset_ = 0;
+            other.size = 0;
+            other.offset = 0;
         }
         return *this;
     }
 
     ~KernelBuf() { DestroyStorage(); }
 
-    char& operator[](size_t index) noexcept { return data()[index]; }
-    const char& operator[](size_t index) const noexcept { return data()[index]; }
+    char& operator[](size_t index) noexcept { return Data()[index]; }
+    const char& operator[](size_t index) const noexcept { return Data()[index]; }
 
-    [[nodiscard]] char* data() noexcept {
+    [[nodiscard]] char* Data() noexcept {
         switch (storage_tag_) {
             case StorageTag::kSbo:  return sbo_data_;
             case StorageTag::kPool: return pool_data_;
-            case StorageTag::kHeap: return heap_vec_.data();
+            case StorageTag::kHeap: return heap_vec_.Data();
             case StorageTag::kNone: return nullptr;
         }
         return nullptr;
     }
 
-    [[nodiscard]] const char* data() const noexcept { return const_cast<KernelBuf*>(this)->data(); }
+    [[nodiscard]] const char* Data() const noexcept { return const_cast<KernelBuf*>(this)->Data(); }
 
-    void resize(size_t new_size) {
-        if (new_size == size_ && storage_tag_ != StorageTag::kNone) return;
-        size_t copy_size = (new_size < size_) ? new_size : size_;
-        char* old_data = (storage_tag_ != StorageTag::kNone) ? data() : nullptr;
+    void Resize(size_t new_size) {
+        if (new_size == size && storage_tag_ != StorageTag::kNone) return;
+        size_t copy_size = (new_size < size) ? new_size : size;
+        char* old_data = (storage_tag_ != StorageTag::kNone) ? Data() : nullptr;
         DestroyStorage();
         AllocateStorage(new_size);
-        if (old_data != nullptr && copy_size > 0) std::memcpy(data(), old_data, copy_size);
-        size_ = new_size;
+        if (old_data != nullptr && copy_size > 0) std::memcpy(Data(), old_data, copy_size);
+        size = new_size;
     }
 
-    void set_fd_offset(int64_t offset) noexcept { offset_ = offset; }
-    [[nodiscard]] int64_t fd_offset() const noexcept { return offset_; }
+    void SetFdOffset(int64_t off) noexcept { offset = off; }
+    [[nodiscard]] int64_t FdOffset() const noexcept { return offset; }
 
-    [[nodiscard]] int bytes_transferred() const noexcept { return io_ret_.value_; }
-    [[nodiscard]] int active_file_descriptor() const noexcept { return io_ret_.ret_fd_; }
+    [[nodiscard]] int BytesTransferred() const noexcept { return io_ret_.value_; }
+    [[nodiscard]] int ActiveFileDescriptor() const noexcept { return io_ret_.ret_fd_; }
 
-    size_t size_{0};
-    int64_t offset_{0};
+    size_t size{0};
+    int64_t offset{0};
 
 private:
     enum class StorageTag : uint8_t { kNone = 0, kSbo, kPool, kHeap };
@@ -112,7 +112,7 @@ private:
             storage_tag_ = StorageTag::kHeap;
             new (&heap_vec_) std::vector<char>(size);
         }
-        size_ = size;
+        size = size;
     }
 
     void DestroyStorage() {
@@ -145,8 +145,8 @@ private:
         other.storage_tag_ = StorageTag::kNone;
     }
 
-    void set_bytes_transferred(int ret) noexcept { io_ret_.value_ = ret; }
-    void set_active_file_descriptor(int fd) noexcept { io_ret_.ret_fd_ = fd; }
+    void SetBytesTransferred(int ret) noexcept { io_ret_.value_ = ret; }
+    void SetActiveFileDescriptor(int fd) noexcept { io_ret_.ret_fd_ = fd; }
 };
 
 using KernelBufPtr = std::unique_ptr<KernelBuf>;
@@ -156,7 +156,7 @@ using KernelBufPtr = std::unique_ptr<KernelBuf>;
 }
 
 }  // namespace task
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_KERNELBUF_HPP_

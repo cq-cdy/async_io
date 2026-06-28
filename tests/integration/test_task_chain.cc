@@ -12,7 +12,7 @@ using namespace talon::task;
 
 TEST_CASE("task chain two tasks sequential") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -31,11 +31,11 @@ TEST_CASE("task chain two tasks sequential") {
     };
 
     auto* t1 = CreateTaskWithHandler(fd, handler1);
-    t1->set_task_type(TaskType::kRead);
+    t1.SetTaskType(TaskType::kRead);
 
     auto* t2 = CreateTaskWithHandler(fd, handler2);
-    t2->set_task_type(TaskType::kRead);
-    t1->set_next_task(t2);
+    t2.SetTaskType(TaskType::kRead);
+    t1.SetNextTask(t2);
 
     io.AddTask(t1);
     io.Flush();
@@ -53,7 +53,7 @@ TEST_CASE("task chain two tasks sequential") {
 
 TEST_CASE("task chain three tasks") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -64,14 +64,14 @@ TEST_CASE("task chain three tasks") {
     };
 
     auto* t1 = CreateTaskWithHandler(fd, make_handler());
-    t1->set_task_type(TaskType::kRead);
+    t1.SetTaskType(TaskType::kRead);
     auto* t2 = CreateTaskWithHandler(fd, make_handler());
-    t2->set_task_type(TaskType::kRead);
+    t2.SetTaskType(TaskType::kRead);
     auto* t3 = CreateTaskWithHandler(fd, make_handler());
-    t3->set_task_type(TaskType::kRead);
+    t3.SetTaskType(TaskType::kRead);
 
-    t1->set_next_task(t2);
-    t2->set_next_task(t3);
+    t1.SetNextTask(t2);
+    t2.SetNextTask(t3);
 
     io.AddTask(t1);
     io.Flush();
@@ -88,14 +88,14 @@ TEST_CASE("task chain three tasks") {
 
 TEST_CASE("task chain next_task nullptr is fine") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
 
     std::atomic<bool> done{false};
     auto* t = CreateTaskWithHandler(fd, [&](KernelBuf*) { done.store(true); });
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     // No next task set — should still complete normally.
     io.AddTask(t);
     io.Flush();

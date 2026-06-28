@@ -15,7 +15,7 @@ TEST_CASE("submit more tasks than max_entries") {
     config.max_entries = 32;  // Small queue.
 
     IOHandler io(config);
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -27,7 +27,7 @@ TEST_CASE("submit more tasks than max_entries") {
     // Submit far more tasks than the ring can hold at once.
     for (int i = 0; i < 200; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         if (io.AddTask(t)) {
             submitted.fetch_add(1, std::memory_order_relaxed);
         }
@@ -51,7 +51,7 @@ TEST_CASE("queue full does not crash") {
     config.auto_flush_threshold_percent = 100;  // Disable auto-flush.
 
     IOHandler io(config);
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -60,7 +60,7 @@ TEST_CASE("queue full does not crash") {
 
     for (int i = 0; i < 300; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();

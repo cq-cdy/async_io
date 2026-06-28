@@ -15,7 +15,7 @@ using namespace talon::task;
 // /dev/random may block waiting for entropy.
 TEST_CASE("timeout read from /dev/random fires timeout") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/random", O_RDONLY | O_NONBLOCK);
     REQUIRE(fd >= 0);
@@ -24,13 +24,13 @@ TEST_CASE("timeout read from /dev/random fires timeout") {
     int handler_ret = -99;
 
     auto h = [&](KernelBuf* b) {
-        handler_ret = b->bytes_transferred();
+        handler_ret = b->BytesTransferred();
         timed_out.store(true, std::memory_order_release);
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
-    t->set_timeout(1);  // 1ms timeout — very aggressive
+    t.SetTaskType(TaskType::kRead);
+    t.SetTimeout(1);  // 1ms timeout — very aggressive
     io.AddTask(t);
     io.Flush();
 
@@ -48,7 +48,7 @@ TEST_CASE("timeout read from /dev/random fires timeout") {
 
 TEST_CASE("timeout with short duration") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/random", O_RDONLY | O_NONBLOCK);
     REQUIRE(fd >= 0);
@@ -57,8 +57,8 @@ TEST_CASE("timeout with short duration") {
     auto h = [&](KernelBuf*) { completed.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
-    t->set_timeout(50);  // 50ms
+    t.SetTaskType(TaskType::kRead);
+    t.SetTimeout(50);  // 50ms
     io.AddTask(t);
     io.Flush();
 
@@ -76,17 +76,17 @@ TEST_CASE("timeout with short duration") {
 
 TEST_CASE("timeout on write would fail fd") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     std::atomic<bool> completed{false};
 
     auto h = [&](KernelBuf*) { completed.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(-1, h);
-    t->set_task_type(TaskType::kWrite);
-    t->set_timeout(100);
-    t->buffer()->resize(4);
-    std::memset(t->buffer()->data(), 'A', 4);
+    t.SetTaskType(TaskType::kWrite);
+    t.SetTimeout(100);
+    t->Buffer()->Resize(4);
+    std::memset(t->Buffer()->Data(), 'A', 4);
     io.AddTask(t);
     io.Flush();
 
@@ -101,7 +101,7 @@ TEST_CASE("timeout on write would fail fd") {
 
 TEST_CASE("timeout zero means no timeout") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -110,8 +110,8 @@ TEST_CASE("timeout zero means no timeout") {
     auto h = [&](KernelBuf*) { done.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
-    t->set_timeout(0);  // No timeout
+    t.SetTaskType(TaskType::kRead);
+    t.SetTimeout(0);  // No timeout
     io.AddTask(t);
     io.Flush();
 

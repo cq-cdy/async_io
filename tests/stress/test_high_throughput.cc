@@ -12,7 +12,7 @@ using namespace talon::task;
 
 TEST_CASE("high throughput many reads from /dev/null") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -26,7 +26,7 @@ TEST_CASE("high throughput many reads from /dev/null") {
 
     for (int i = 0; i < kNumTasks; i++) {
         auto* t = CreateTaskWithHandler(fd, handler);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();
@@ -43,7 +43,7 @@ TEST_CASE("high throughput many reads from /dev/null") {
 
 TEST_CASE("high throughput rapid submit and complete cycles") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -58,7 +58,7 @@ TEST_CASE("high throughput rapid submit and complete cycles") {
     for (int batch = 0; batch < 10; batch++) {
         for (int i = 0; i < 100; i++) {
             auto* t = CreateTaskWithHandler(fd, handler);
-            t->set_task_type(TaskType::kRead);
+            t.SetTaskType(TaskType::kRead);
             io.AddTask(t);
         }
         io.Flush();

@@ -14,7 +14,7 @@
 #include "async_io_task.hpp"
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 
 class IOHandler;
 
@@ -40,10 +40,10 @@ public:
     }
 
     // Returns the listen file descriptor, or -1 if not started.
-    [[nodiscard]] int listen_fd() const noexcept { return listen_fd_; }
+    [[nodiscard]] int ListenFd() const noexcept { return listen_fd_; }
 
     // Returns the last error message.
-    [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
+    [[nodiscard]] const std::string& LastError() const noexcept { return last_error_; }
 
     // Creates a pre-configured accept task for this server.  The task type is
     // set to kAccept and repeat_forever is enabled.  Call io.AddTask() to
@@ -52,8 +52,8 @@ public:
     [[nodiscard]] task::AsyncTask<void>* CreateAcceptTask(Args&&... handler_args) {
         auto* task = task::CreateTaskWithHandler(
             listen_fd_, std::forward<Args>(handler_args)...);
-        task->set_task_type(task::TaskType::kAccept);
-        task->set_repeat_forever(true);
+        task.SetTaskType(task::TaskType::kAccept);
+        task.SetRepeatForever(true);
         return task;
     }
 
@@ -93,7 +93,7 @@ private:
     std::string last_error_;
 };
 
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_TCP_SERVER_HPP_

@@ -12,7 +12,7 @@ using namespace talon::task;
 
 TEST_CASE("lifetime task destroyed before IOHandler shutdown") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -21,7 +21,7 @@ TEST_CASE("lifetime task destroyed before IOHandler shutdown") {
     auto h = [&](KernelBuf*) { handler_called.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -42,13 +42,13 @@ TEST_CASE("lifetime IOHandler destroyed after tasks complete") {
 
     {
         IOHandler io;
-        REQUIRE(io.initialized());
+        REQUIRE(io.Initialized());
 
         std::atomic<bool> done{false};
         auto h = [&](KernelBuf*) { done.store(true, std::memory_order_release); };
 
         auto* t = CreateTaskWithHandler(fd, h);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         io.AddTask(t);
         io.Flush();
 
@@ -68,14 +68,14 @@ TEST_CASE("lifetime IOHandler destroyed after tasks complete") {
 TEST_CASE("lifetime WaitForCompletion on never-submitted task") {
     auto* t = CreateTaskWithHandler(0);
     auto r = t->WaitForCompletion(100);
-    CHECK_FALSE(r.iodone());
-    CHECK(r.err_msg().find("not detached") != std::string::npos);
+    CHECK_FALSE(r.IoDone());
+    CHECK(r.ErrMsg().find("not detached") != std::string::npos);
     delete t;
 }
 
 TEST_CASE("lifetime WaitForCompletion on completed task") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     int fd = open("/dev/null", O_RDONLY);
     REQUIRE(fd >= 0);
@@ -84,7 +84,7 @@ TEST_CASE("lifetime WaitForCompletion on completed task") {
     auto h = [&](KernelBuf*) { handler_done.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -95,7 +95,7 @@ TEST_CASE("lifetime WaitForCompletion on completed task") {
 
     auto r = t->WaitForCompletion(100);
     // Task should be detached and completed.
-    CHECK(r.iodone());
+    CHECK(r.IoDone());
 
     close(fd);
     io.RequestShutdown();
@@ -106,7 +106,7 @@ TEST_CASE("lifetime task object pool reuse across many create/delete") {
     constexpr int kCycles = 500;
     for (int i = 0; i < kCycles; i++) {
         auto* t = CreateTaskWithHandler(i % 100);
-        t->set_task_type(TaskType::kRead);
+        t.SetTaskType(TaskType::kRead);
         delete t;
     }
     SUCCEED("500 create/delete cycles ok");

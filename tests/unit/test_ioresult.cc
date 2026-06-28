@@ -14,39 +14,39 @@ using namespace talon::task;
 
 TEST_CASE("IOResult default values") {
     IOResult r(0, 1, false, "");
-    CHECK(r.io_ret() == 0);
-    CHECK(r.event_fd() == 1);
-    CHECK_FALSE(r.iodone());
-    CHECK(r.err_msg().empty());
+    CHECK(r.IoRet() == 0);
+    CHECK(r.EventFd() == 1);
+    CHECK_FALSE(r.IoDone());
+    CHECK(r.ErrMsg().empty());
 }
 
 TEST_CASE("IOResult construction with all args") {
     IOResult r(42, 7, true, "success");
-    CHECK(r.io_ret() == 42);
-    CHECK(r.event_fd() == 7);
-    CHECK(r.iodone());
-    CHECK(r.err_msg() == "success");
+    CHECK(r.IoRet() == 42);
+    CHECK(r.EventFd() == 7);
+    CHECK(r.IoDone());
+    CHECK(r.ErrMsg() == "success");
 }
 
 TEST_CASE("IOResult negative io_ret") {
     IOResult r(-1, 3, false, "error occurred");
-    CHECK(r.io_ret() == -1);
-    CHECK(r.event_fd() == 3);
-    CHECK_FALSE(r.iodone());
-    CHECK(r.err_msg() == "error occurred");
+    CHECK(r.IoRet() == -1);
+    CHECK(r.EventFd() == 3);
+    CHECK_FALSE(r.IoDone());
+    CHECK(r.ErrMsg() == "error occurred");
 }
 
 TEST_CASE("IOResult large values") {
     IOResult r(2147483647, 65535, true, std::string(1024, 'x'));
-    CHECK(r.io_ret() == 2147483647);
-    CHECK(r.event_fd() == 65535);
-    CHECK(r.iodone());
-    CHECK(r.err_msg().size() == 1024);
+    CHECK(r.IoRet() == 2147483647);
+    CHECK(r.EventFd() == 65535);
+    CHECK(r.IoDone());
+    CHECK(r.ErrMsg().size() == 1024);
 }
 
 TEST_CASE("IOResult zero-length error message") {
     IOResult r(0, 0, false);
-    CHECK(r.err_msg().empty());
+    CHECK(r.ErrMsg().empty());
 }
 
 // ============================================================================

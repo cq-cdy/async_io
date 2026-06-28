@@ -12,19 +12,19 @@ using namespace talon::task;
 
 TEST_CASE("retry on failure fires handler eventually") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     // Use a bad fd that will fail — retry should eventually give up.
     std::atomic<int> call_count{0};
     auto h = [&](KernelBuf* b) {
         call_count.fetch_add(1, std::memory_order_relaxed);
-        int r = b->bytes_transferred();
+        int r = b->BytesTransferred();
         (void)r;
     };
 
     auto* t = CreateTaskWithHandler(-1, h);
-    t->set_task_type(TaskType::kRead);
-    t->set_max_retry_count(3);  // Retry up to 3 times
+    t.SetTaskType(TaskType::kRead);
+    t.SetMaxRetryCount(3);  // Retry up to 3 times
     io.AddTask(t);
     io.Flush();
 
@@ -41,12 +41,12 @@ TEST_CASE("retry on failure fires handler eventually") {
 
 TEST_CASE("retry count zero means no retry") {
     IOHandler io;
-    REQUIRE(io.initialized());
+    REQUIRE(io.Initialized());
 
     auto* t = CreateTaskWithHandler(-1);
-    t->set_task_type(TaskType::kRead);
-    t->set_max_retry_count(0);
-    CHECK_FALSE(t->repeat_when_failed());
+    t.SetTaskType(TaskType::kRead);
+    t.SetMaxRetryCount(0);
+    CHECK_FALSE(t->RepeatWhenFailed());
     delete t;
 
     io.RequestShutdown();
@@ -55,8 +55,8 @@ TEST_CASE("retry count zero means no retry") {
 
 TEST_CASE("retry count negative means no retry by default") {
     auto* t = CreateTaskWithHandler(1);
-    t->set_task_type(TaskType::kRead);
+    t.SetTaskType(TaskType::kRead);
     // Default is -1, repeat_when_failed checks > 0
-    CHECK_FALSE(t->repeat_when_failed());
+    CHECK_FALSE(t->RepeatWhenFailed());
     delete t;
 }

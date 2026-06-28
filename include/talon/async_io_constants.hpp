@@ -15,9 +15,9 @@
 #endif
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 
-inline constexpr std::string_view kVersion = "v2.2.0";
+inline constexpr std::string_view kVersion = "v1.0.0";
 inline constexpr bool kDebugEnabled = (TALON_DEBUG_IS_ENABLED_ == 1);
 
 inline constexpr int kTimeoutBit = 63;
@@ -162,7 +162,7 @@ enum class EventFlag : uint64_t {
 };
 
 }  // namespace task
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #undef TALON_DEBUG_IS_ENABLED_

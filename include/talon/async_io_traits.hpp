@@ -7,7 +7,7 @@
 #include <type_traits>
 
 namespace talon {
-inline namespace v2_2_0 {
+inline namespace v1_0_0 {
 namespace task {
 
 template <typename T>
@@ -58,7 +58,7 @@ inline constexpr bool kIsNothrowCallable =
     noexcept(std::declval<std::decay_t<F>>()(std::declval<Args>()...));
 
 }  // namespace task
-}  // namespace v2_2_0
+}  // namespace v1_0_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_TRAITS_HPP_

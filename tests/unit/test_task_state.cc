@@ -81,75 +81,75 @@ TEST_CASE("EventFlag values match constants") {
 
 TEST_CASE("AsyncTask default state is kReady") {
     auto* t = CreateTaskWithHandler(5);
-    CHECK(t->state() == TaskState::kReady);
-    CHECK(t->fd() == 5);
-    CHECK(t->type() == TaskType::kNone);
-    CHECK_FALSE(t->repeat_forever());
+    CHECK(t->State() == TaskState::kReady);
+    CHECK(t->Fd() == 5);
+    CHECK(t->Type() == TaskType::kNone);
+    CHECK_FALSE(t->RepeatForever());
     delete t;
 }
 
 TEST_CASE("AsyncTask set_task_type") {
     auto* t = CreateTaskWithHandler(3);
-    t->set_task_type(TaskType::kRead);
-    CHECK(t->type() == TaskType::kRead);
-    t->set_task_type(TaskType::kWrite);
-    CHECK(t->type() == TaskType::kWrite);
+    t.SetTaskType(TaskType::kRead);
+    CHECK(t->Type() == TaskType::kRead);
+    t.SetTaskType(TaskType::kWrite);
+    CHECK(t->Type() == TaskType::kWrite);
     delete t;
 }
 
 TEST_CASE("AsyncTask set_timeout") {
     auto* t = CreateTaskWithHandler(3);
-    t->set_timeout(5000);
+    t.SetTimeout(5000);
     // Timeout is stored internally; we only verify no crash.
     delete t;
 }
 
 TEST_CASE("AsyncTask set_max_retry_count") {
     auto* t = CreateTaskWithHandler(1);
-    t->set_max_retry_count(3);
+    t.SetMaxRetryCount(3);
     // repeat_when_failed returns true when max_retry_count > 0
-    CHECK(t->repeat_when_failed());
+    CHECK(t->RepeatWhenFailed());
     delete t;
 }
 
 TEST_CASE("AsyncTask set_max_retry_count zero") {
     auto* t = CreateTaskWithHandler(1);
-    t->set_max_retry_count(0);
-    CHECK_FALSE(t->repeat_when_failed());
+    t.SetMaxRetryCount(0);
+    CHECK_FALSE(t->RepeatWhenFailed());
     delete t;
 }
 
 TEST_CASE("AsyncTask set_repeat_forever") {
     auto* t = CreateTaskWithHandler(2);
-    t->set_repeat_forever(true);
-    CHECK(t->repeat_forever());
-    t->set_repeat_forever(false);
-    CHECK_FALSE(t->repeat_forever());
+    t.SetRepeatForever(true);
+    CHECK(t->RepeatForever());
+    t.SetRepeatForever(false);
+    CHECK_FALSE(t->RepeatForever());
     delete t;
 }
 
 TEST_CASE("AsyncTask set_debug_str") {
     auto* t = CreateTaskWithHandler(0);
-    t->set_debug_str("test debug");
-    CHECK(t->debug_str() == "test debug");
+    t.SetDebugStr("test debug");
+    CHECK(t->DebugStr() == "test debug");
     delete t;
 }
 
 TEST_CASE("AsyncTask buffer exists after construction") {
     auto* t = CreateTaskWithHandler(7);
-    CHECK(t->buffer() != nullptr);
-    CHECK(t->buffer()->size_ == kDefaultBufferSize);
+    CHECK(t->Buffer() != nullptr);
+    CHECK(t->Buffer()->size == kDefaultBufferSize);
     delete t;
 }
 
 TEST_CASE("AsyncTask SetBuffer and ResetBuffer") {
     auto* t = CreateTaskWithHandler(10);
     auto new_buf = MakeKernelBuffer(512);
-    CHECK(new_buf->size_ == 512);
+    CHECK(new_buf->size == 512);
     t->SetBuffer(std::move(new_buf));
-    CHECK(t->buffer()->size_ == 512);
+    CHECK(t->Buffer()->size == 512);
     t->ResetBuffer();
-    CHECK(t->buffer()->size_ == 0);
+    CHECK(t->Buffer()->size == 0);
     delete t;
 }
 
@@ -158,8 +158,8 @@ TEST_CASE("AsyncTask DeepCopyBufferFrom") {
     KernelBuf src(128);
     src[0] = 'A'; src[127] = 'Z';
     t->DeepCopyBufferFrom(src);
-    CHECK(t->buffer()->size_ == 128);
-    CHECK((*t->buffer())[0] == 'A');
-    CHECK((*t->buffer())[127] == 'Z');
+    CHECK(t->Buffer()->size == 128);
+    CHECK((*t->Buffer())[0] == 'A');
+    CHECK((*t->Buffer())[127] == 'Z');
     delete t;
 }

@@ -21,37 +21,120 @@ struct alignas(64) PoolNode {
     std::atomic<PoolNode*> next{nullptr};
 };
 
-class TreiberStack {
+// ============================================================================
+// TaggedPointer — ABA-proof 128-bit tagged pointer for TreiberStack.
+//
+// On x86_64 (cmpxchg16b) and ARMv8.1+ (LSE), 128-bit DWCAS is lock-free.
+// On older ARM64 or 32-bit platforms, we fall back to a mutex-protected
+// stack.  The tagged pointer eliminates the classic ABA problem: even if
+// the same PoolNode* reappears at head_, the tag is guaranteed different.
+// ============================================================================
+
+struct alignas(16) TaggedPointer {
+    PoolNode* ptr;
+    uint64_t   tag;
+};
+
+// The lock-free path is selected when the platform reports 16-byte
+// atomics as always lock-free.  Otherwise we use a plain mutex stack.
+static constexpr bool kHasLockFreeTaggedPtr =
+    std::atomic<TaggedPointer>::is_always_lock_free;
+
+namespace detail {
+
+// ---- Lock-free (ABA-safe) stack -------------------------------------------
+class LockFreeStack {
 public:
     void Push(PoolNode* node) noexcept {
-        PoolNode* old_head = head_.load(std::memory_order_relaxed);
-        do { node->next.store(old_head, std::memory_order_relaxed); }
-        while (!head_.compare_exchange_weak(old_head, node,
-                 std::memory_order_release, std::memory_order_relaxed));
+        TaggedPointer old_head = head_.load(std::memory_order_relaxed);
+        TaggedPointer new_head;
+        do {
+            node->next.store(old_head.ptr, std::memory_order_relaxed);
+            new_head = {node, old_head.tag + 1};
+        } while (!head_.compare_exchange_weak(old_head, new_head,
+                     std::memory_order_release, std::memory_order_relaxed));
     }
 
     [[nodiscard]] PoolNode* Pop() noexcept {
-        PoolNode* old_head = head_.load(std::memory_order_acquire);
-        while (old_head != nullptr) {
-            PoolNode* next = old_head->next.load(std::memory_order_acquire);
-            if (head_.compare_exchange_weak(old_head, next,
+        TaggedPointer old_head = head_.load(std::memory_order_acquire);
+        TaggedPointer new_head;
+        while (old_head.ptr != nullptr) {
+            PoolNode* next = old_head.ptr->next.load(std::memory_order_acquire);
+            new_head = {next, old_head.tag + 1};
+            if (head_.compare_exchange_weak(old_head, new_head,
                     std::memory_order_acq_rel, std::memory_order_acquire))
-                return old_head;
+                return old_head.ptr;
         }
         return nullptr;
     }
 
-    void PushChain(PoolNode* head, PoolNode* tail) noexcept {
-        PoolNode* old_head = head_.load(std::memory_order_relaxed);
-        do { tail->next.store(old_head, std::memory_order_relaxed); }
-        while (!head_.compare_exchange_weak(old_head, head,
-                 std::memory_order_release, std::memory_order_relaxed));
+    void PushChain(PoolNode* chain_head, PoolNode* chain_tail) noexcept {
+        TaggedPointer old_head = head_.load(std::memory_order_relaxed);
+        TaggedPointer new_head;
+        do {
+            chain_tail->next.store(old_head.ptr, std::memory_order_relaxed);
+            new_head = {chain_head, old_head.tag + 1};
+        } while (!head_.compare_exchange_weak(old_head, new_head,
+                     std::memory_order_release, std::memory_order_relaxed));
     }
 
-    [[nodiscard]] bool Empty() const noexcept { return head_.load(std::memory_order_acquire) == nullptr; }
+    [[nodiscard]] bool Empty() const noexcept {
+        return head_.load(std::memory_order_acquire).ptr == nullptr;
+    }
 
-    alignas(64) std::atomic<PoolNode*> head_{nullptr};
+    // Returns a snapshot of the head pointer for diagnostics (racy by nature).
+    [[nodiscard]] PoolNode* UnsafeHeadForDiagnostics() const noexcept {
+        return head_.load(std::memory_order_acquire).ptr;
+    }
+
+    alignas(64) std::atomic<TaggedPointer> head_{{nullptr, 0}};
 };
+
+// ---- Mutex-based fallback stack --------------------------------------------
+class MutexStack {
+public:
+    void Push(PoolNode* node) noexcept {
+        std::lock_guard<std::mutex> lk(mtx_);
+        node->next.store(head_, std::memory_order_relaxed);
+        head_ = node;
+    }
+
+    [[nodiscard]] PoolNode* Pop() noexcept {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (head_ == nullptr) return nullptr;
+        PoolNode* node = head_;
+        head_ = node->next.load(std::memory_order_relaxed);
+        return node;
+    }
+
+    void PushChain(PoolNode* chain_head, PoolNode* chain_tail) noexcept {
+        std::lock_guard<std::mutex> lk(mtx_);
+        chain_tail->next.store(head_, std::memory_order_relaxed);
+        head_ = chain_head;
+    }
+
+    [[nodiscard]] bool Empty() const noexcept {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return head_ == nullptr;
+    }
+
+    // Returns a snapshot of the head pointer for diagnostics (racy by nature).
+    [[nodiscard]] PoolNode* UnsafeHeadForDiagnostics() const noexcept {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return head_;
+    }
+
+private:
+    mutable std::mutex mtx_;
+    PoolNode* head_{nullptr};
+};
+
+}  // namespace detail
+
+// Public type alias: picks the best implementation for this platform.
+using TreiberStack = std::conditional_t<kHasLockFreeTaggedPtr,
+                                        detail::LockFreeStack,
+                                        detail::MutexStack>;
 
 template <typename T>
 class ObjectPool {
@@ -96,8 +179,9 @@ public:
 
     [[nodiscard]] size_t ApproximateFreeCount() const noexcept {
         size_t count = 0;
-        for (PoolNode* n = free_list_.head_.load(std::memory_order_acquire);
-             n != nullptr && count < 1000000; n = n->next.load(std::memory_order_acquire)) count++;
+        for (PoolNode* n = free_list_.UnsafeHeadForDiagnostics();
+             n != nullptr && count < 1000000;
+             n = n->next.load(std::memory_order_acquire)) count++;
         return count;
     }
 

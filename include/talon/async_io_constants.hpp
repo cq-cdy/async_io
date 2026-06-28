@@ -52,17 +52,36 @@ inline constexpr size_t kBufferPoolTlsCacheSize = 16;
 // an AsyncIoConfig, override desired fields, and pass it to IOHandler,
 // TcpServer, or TcpClient constructors.
 struct AsyncIoConfig {
+    // --- io_uring ring parameters ---
     int max_entries = 256;
+
+    // --- Buffer / pool defaults ---
     size_t default_buffer_size = 2048;
-    int auto_flush_threshold_percent = 75;
-    int default_timeout_ms = 0;
-    int default_max_retry_count = -1;
-    int tcp_accept_backlog = SOMAXCONN;
-    int tcp_default_port = 8080;
     size_t kernel_buf_sbo_size = 256;
     size_t task_pool_capacity = 4096;
     size_t task_pool_grow_batch = 1024;
+
+    // --- Auto-flush ---
+    int auto_flush_threshold_percent = 75;
+
+    // --- Task defaults ---
+    int default_timeout_ms = 0;
+    int default_max_retry_count = -1;
+
+    // --- TCP defaults ---
+    int tcp_accept_backlog = SOMAXCONN;
+    int tcp_default_port = 8080;
     int connect_timeout_ms = 5000;
+
+    // --- Backpressure ---
+    // Maximum number of in-flight I/O operations allowed.  When this limit
+    // is reached, AddTask() returns false so the caller can apply back-off.
+    // A value of 0 disables the limit (no backpressure).
+    int max_inflight_ops = 0;  // 0 = unlimited
+
+    // When backpressure is active and the caller busy-retries AddTask(),
+    // this is the suggested sleep duration in microseconds between retries.
+    int backpressure_retry_us = 100;
 };
 
 // ============================================================================

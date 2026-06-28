@@ -64,6 +64,8 @@ add_async_io_test(integration/test_repeat_forever)
 add_async_io_test(stress/test_high_throughput)
 add_async_io_test(stress/test_pool_stress)
 add_async_io_test(stress/test_buffer_reuse)
+add_async_io_test(stress/test_aba_stress)
+add_async_io_test(stress/test_pool_hammer)
 
 # ============================================================================
 # Adversarial Tests
@@ -75,3 +77,5 @@ add_async_io_test(adversarial/test_shutdown_stress)
 add_async_io_test(adversarial/test_queue_full)
 add_async_io_test(adversarial/test_lifetime)
 add_async_io_test(adversarial/test_memory_leak)
+add_async_io_test(adversarial/test_backpressure)
+add_async_io_test(adversarial/test_signal_shutdown)

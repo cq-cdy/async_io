@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <csignal>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -40,6 +41,7 @@ public:
     }
 
     ~IOHandler() {
+        UninstallSignalHandlers();
         RequestShutdown(); Join();
         if (uring_) io_uring_queue_exit(uring_.get());
     }
@@ -47,12 +49,71 @@ public:
     IOHandler(const IOHandler&) = delete;
     IOHandler& operator=(const IOHandler&) = delete;
 
+    // ========================================================================
+    // Signal Handling
+    // ========================================================================
+    //
+    // InstallSignalHandlers() registers SIGINT and SIGTERM handlers that
+    // call RequestShutdown() in an async-signal-safe manner.  This is a
+    // convenience — users who need custom signal handling may call
+    // RequestShutdown() directly from their own signal handler.
+    //
+    // Only one IOHandler can be registered for signal-based shutdown at a
+    // time.  The destructor automatically unregisters.
+
+    [[nodiscard]] bool InstallSignalHandlers() {
+        IOHandler* prev = nullptr;
+        if (!active_instance_.compare_exchange_strong(prev, this,
+                std::memory_order_acq_rel, std::memory_order_acquire))
+            return false;  // Another IOHandler already registered.
+        struct sigaction sa = {};
+        sa.sa_handler = &IOHandler::OnSignal;
+        sa.sa_flags = SA_RESTART;
+        sigemptyset(&sa.sa_mask);
+        if (sigaction(SIGINT, &sa, &saved_sigint_) < 0 ||
+            sigaction(SIGTERM, &sa, &saved_sigterm_) < 0) {
+            active_instance_.store(nullptr, std::memory_order_release);
+            return false;
+        }
+        signals_installed_ = true;
+        return true;
+    }
+
+    void UninstallSignalHandlers() noexcept {
+        if (!signals_installed_) return;
+        sigaction(SIGINT, &saved_sigint_, nullptr);
+        sigaction(SIGTERM, &saved_sigterm_, nullptr);
+        active_instance_.store(nullptr, std::memory_order_release);
+        signals_installed_ = false;
+    }
+
+    // Async-signal-safe entry point for user-registered signal handlers.
+    // Users may call this directly from their own sigaction callback.
+    static void OnSignal(int /*signum*/) noexcept {
+        auto* self = active_instance_.load(std::memory_order_acquire);
+        if (self != nullptr) self->RequestShutdown();
+    }
+
     // --- Status ---
     [[nodiscard]] bool initialized() const noexcept { return init_error_.empty(); }
     [[nodiscard]] const std::string& init_error() const noexcept { return init_error_; }
     [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
     [[nodiscard]] io_uring* iouring() const noexcept { return uring_.get(); }
     [[nodiscard]] const AsyncIoConfig& config() const noexcept { return config_; }
+
+    // --- Backpressure / Load ---
+    // Returns the current number of in-flight I/O operations.  Useful for
+    // implementing application-level flow control alongside max_inflight_ops.
+    [[nodiscard]] int64_t inflight_count() const noexcept {
+        return inflight_count_.load(std::memory_order_acquire);
+    }
+
+    // Returns true when the inflight limit is configured and currently
+    // saturated — callers should apply back-off before retrying AddTask.
+    [[nodiscard]] bool backpressure_active() const noexcept {
+        int limit = config_.max_inflight_ops;
+        return limit > 0 && inflight_count_.load(std::memory_order_acquire) >= limit;
+    }
 
     // --- Task Submission ---
 
@@ -64,6 +125,29 @@ public:
             task->detach_.store(false, std::memory_order_release);
             return false;
         }
+
+        // --- Backpressure gate ---
+        // Reserve an inflight slot before submitting.  If the limit is
+        // reached, transition the task back to ready so the caller may
+        // retry later.
+        if (config_.max_inflight_ops > 0) {
+            int64_t cur = inflight_count_.load(std::memory_order_relaxed);
+            while (cur < config_.max_inflight_ops) {
+                if (inflight_count_.compare_exchange_weak(cur, cur + 1,
+                        std::memory_order_relaxed))
+                    goto submit;
+            }
+            // Backpressure: no slot available.  Roll back the state
+            // transition so the caller can retry.
+            task->task_state_.store(task::TaskState::kReady,
+                                    std::memory_order_release);
+            DebugLog("AddTask backpressure, inflight=%ld max=%d\n",
+                     (long)cur, config_.max_inflight_ops);
+            return false;
+        } else {
+            inflight_count_.fetch_add(1, std::memory_order_relaxed);
+        }
+    submit:
         task->MarkDetachedAndComplete(false);
         task->is_cancel_.store(false, std::memory_order_release);
         DebugLog("AddTask ok, fd=%d\n", task->fd_);
@@ -118,12 +202,14 @@ private:
         auto st = tp->task_state_.load(std::memory_order_acquire);
         if (st != task::TaskState::kSubmitted && st != task::TaskState::kReady) {
             DebugLog("Skip CQE fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).data());
-            return;
+            return;  // Stale CQE — inflight was already decremented.
         }
         if (tp->is_cancel_.load(std::memory_order_acquire)) {
             tp->MarkDetachedAndComplete(true);
             tp->SetTaskState(task::TaskState::kCanceled);
-            delete tp; return;
+            delete tp;
+            inflight_count_.fetch_sub(1, std::memory_order_relaxed);
+            return;
         }
         switch (et) {
             case task::EventFlag::kNone:    HandleNormalEvent(tp, res); break;
@@ -132,6 +218,10 @@ private:
             case task::EventFlag::kCancel:  if (res >= 0) HandleCancelEvent(tp); break;
             default:                        HandleErrorEvent(tp, res); break;
         }
+        // Every path through the switch above represents one completed I/O
+        // operation.  Re-submissions (repeat_forever / chained tasks) are
+        // re-counted inside AddTask, so the net effect is correct.
+        inflight_count_.fetch_sub(1, std::memory_order_relaxed);
     }
 
     // ========================================================================
@@ -344,9 +434,19 @@ private:
     std::unique_ptr<io_uring> uring_;
     std::thread event_thread_;
     std::atomic<bool> shutdown_requested_{false};
+    std::atomic<int64_t> inflight_count_{0};
     std::string init_error_;
     std::string last_error_;
+
+    // Signal handling (static + per-instance)
+    static std::atomic<IOHandler*> active_instance_;
+    bool signals_installed_{false};
+    struct sigaction saved_sigint_{};
+    struct sigaction saved_sigterm_{};
 };
+
+// Static member definition (header-only library, C++17 inline variable).
+inline std::atomic<IOHandler*> IOHandler::active_instance_{nullptr};
 
 }  // namespace v2_2_0
 }  // namespace talon

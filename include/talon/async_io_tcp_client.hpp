@@ -13,7 +13,7 @@
 #include "async_io_task.hpp"
 
 namespace talon {
-inline namespace v1_0_0 {
+inline namespace v2_2_0 {
 
 class IOHandler;
 
@@ -72,7 +72,7 @@ private:
     std::string last_error_;
 };
 
-}  // namespace v1_0_0
+}  // namespace v2_2_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_TCP_CLIENT_HPP_

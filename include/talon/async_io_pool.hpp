@@ -14,7 +14,7 @@
 #include <vector>
 
 namespace talon {
-inline namespace v1_0_0 {
+inline namespace v2_2_0 {
 namespace memory {
 
 struct alignas(64) PoolNode {
@@ -357,7 +357,7 @@ template <typename T>
 }
 
 }  // namespace task
-}  // namespace v1_0_0
+}  // namespace v2_2_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_POOL_HPP_

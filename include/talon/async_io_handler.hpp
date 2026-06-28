@@ -21,7 +21,7 @@
 #include "async_io_task.hpp"
 
 namespace talon {
-inline namespace v1_0_0 {
+inline namespace v2_2_0 {
 
 class IOHandler {
     friend class TcpServer;
@@ -448,7 +448,7 @@ private:
 // Static member definition (header-only library, C++17 inline variable).
 inline std::atomic<IOHandler*> IOHandler::active_instance_{nullptr};
 
-}  // namespace v1_0_0
+}  // namespace v2_2_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_HANDLER_HPP_

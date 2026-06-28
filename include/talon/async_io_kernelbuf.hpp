@@ -13,7 +13,7 @@
 #include <vector>
 
 namespace talon {
-inline namespace v1_0_0 {
+inline namespace v2_2_0 {
 namespace task {
 
 class IOHandler;
@@ -156,7 +156,7 @@ using KernelBufPtr = std::unique_ptr<KernelBuf>;
 }
 
 }  // namespace task
-}  // namespace v1_0_0
+}  // namespace v2_2_0
 }  // namespace talon
 
 #endif  // TALON_ASYNC_IO_KERNELBUF_HPP_

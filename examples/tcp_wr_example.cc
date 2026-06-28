@@ -1,63 +1,109 @@
+// ============================================================================
+// Example: TCP Client — multi-message write+read with repeat-forever
+//
+// Demonstrates: TcpClient, repeat-forever read, multiple writes,
+//               SetNextTask for connect-then-read pattern,
+//               manual shutdown after receiving expected response count.
+// ============================================================================
+
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unistd.h>
-
-#include <algorithm>
-#include <memory>
 #include <string>
+#include <unistd.h>
 
 #include <talon/async_io.hpp>
 
 using namespace talon;
 using namespace talon::task;
 
-IOHandler io;
-TcpServer server(io);
+static IOHandler io;
+static int g_responses_needed = 3;
+static int g_responses_seen   = 0;
 
-void EchoHandler(KernelBuf* buf) {
+// ---- Read handler: receives echo responses ----
+void ClientReadHandler(KernelBuf* buf) {
     int bytes = buf->BytesTransferred();
-    int fd = buf->ActiveFileDescriptor();
-    printf("EchoHandler: %d bytes fd=%d\n", bytes, fd);
+    int fd    = buf->ActiveFileDescriptor();
 
-    std::string original(buf->Data(), buf->Data() + bytes);
-    std::string reversed = original;
-    std::reverse(reversed.begin(), reversed.end());
-    std::string resp = "peer fd=[" + std::to_string(fd) + "]: " + reversed;
+    if (bytes <= 0) {
+        close(fd);
+        return;
+    }
 
-    auto wb = MakeKernelBuffer(resp.size());
-    std::copy(resp.begin(), resp.end(), wb->Data());
+    g_responses_seen++;
+    printf("[response %d/%d] %.*s\n",
+           g_responses_seen, g_responses_needed, bytes, buf->Data());
 
-    auto* wt = CreateTaskWithHandler(fd);
-    wt.SetTaskType(TaskType::kWrite);
-    wt->SetBuffer(std::move(wb));
-    io.AddTask(wt);
+    if (g_responses_seen >= g_responses_needed) {
+        printf("All responses received. Shutting down.\n");
+        close(fd);
+        io.RequestShutdown();
+    }
 }
 
-void AcceptHandler(KernelBuf* buf) {
-    int client_fd = buf->BytesTransferred();
-    printf("Accepted fd=%d\n", client_fd);
-    auto* rt = CreateTaskWithHandler(client_fd, EchoHandler);
-    rt.SetTaskType(TaskType::kRead);
-    rt.SetRepeatForever(true);
+// ---- Connect complete: start reading, then send messages ----
+void ConnectCompleteHandler(KernelBuf* buf) {
+    int ret = buf->BytesTransferred();
+    int fd  = buf->ActiveFileDescriptor();
+
+    if (ret < 0) {
+        fprintf(stderr, "Connect failed: %s\n", strerror(-ret));
+        close(fd);
+        io.RequestShutdown();
+        return;
+    }
+    printf("Connected fd=%d\n", fd);
+
+    // Set up repeat-forever read to receive all responses.
+    auto* rt = CreateTaskWithHandler(fd, ClientReadHandler);
+    rt->SetTaskType(TaskType::kRead);
+    rt->SetRepeatForever(true);
+    rt->SetDebugStr("client_repeat_read");
     io.AddTask(rt);
+
+    // Send 3 messages.
+    const char* messages[] = {
+        "Hello server!\n",
+        "How are you?\n",
+        "Goodbye!\n"
+    };
+    for (int i = 0; i < 3; i++) {
+        auto* wt = CreateTaskWithHandler(fd);
+        wt->SetTaskType(TaskType::kWrite);
+        wt->Buffer()->Resize(std::strlen(messages[i]));
+        std::memcpy(wt->Buffer()->Data(), messages[i],
+                    std::strlen(messages[i]));
+        wt->SetDebugStr("client_write_" + std::to_string(i));
+        io.AddTask(wt);
+    }
+    printf("Sent 3 messages to server\n");
 }
 
-int main() {
+// ---- Main ----
+int main(int argc, char* argv[]) {
+    const char* ip = (argc > 1) ? argv[1] : "127.0.0.1";
+    int port       = (argc > 2) ? atoi(argv[2]) : 8081;
+
     if (!io.Initialized()) {
-        fprintf(stderr, "IOHandler init failed: %s\n", io.InitError().c_str());
-        return EXIT_FAILURE;
-    }
-    if (!server.Start(8081)) {
-        fprintf(stderr, "TcpServer failed: %s\n", server.LastError().c_str());
+        fprintf(stderr, "IOHandler init failed: %s\n",
+                io.InitError().c_str());
         return EXIT_FAILURE;
     }
 
-    auto* at = server.CreateAcceptTask(AcceptHandler);
-    io.AddTask(at);
+    TcpClient client(io);
+    printf("Connecting to echo server at %s:%d ...\n", ip, port);
 
-    printf("TCP echo server running on port 8081. Press Ctrl+C to stop.\n");
-    sleep(UINT_MAX);
+    auto* ct = client.Connect(ip, port, ConnectCompleteHandler);
+    if (ct == nullptr) {
+        fprintf(stderr, "Connect failed: %s\n",
+                client.LastError().c_str());
+        return EXIT_FAILURE;
+    }
+    io.AddTask(ct);
+
+    io.Join();
+    printf("TCP write+read demo complete.\n");
     return 0;
 }

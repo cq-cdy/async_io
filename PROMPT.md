@@ -1,166 +1,194 @@
-# Talon Async I/O — 开发任务与审查 Prompt 整理
+# Talon Async I/O — 开发任务 Prompt 全集
 
-> 本文档汇总了 `talon-async-io` 项目从初始审计到发布准备的全部用户指令与执行范围。
-
----
-
-## Phase 0 — 项目定位
-
-你是世界级 C++ 系统架构师，专精高性能异步 I/O 库。代码库是即将发布的 **C++17 header-only 异步 I/O 库**，基于 Linux `io_uring` (kernel >= 5.11)，目标用户涵盖企业与汽车行业 (ISO 26262 / ASIL-aware)。严格遵循 **Google C++ Style Guide** 与 **Google C++ Guidelines**。
+> 以下为 `talon-async-io` C++17 异步 I/O 库从初始审计到发布准备的全部用户指令原文。
 
 ---
 
-## Phase 1 — 代码库深度理解
+## 1. 初始审计（基于 PROMPT.md 的 7 阶段审查）
 
-1. 通读并映射全部代码库（每个源文件、头文件、测试、构建配置）
-2. 输出架构文档：目录结构、公共 API、内部实现层、依赖关系、并发模型、内存管理
-3. 生成依赖关系图，标记循环依赖或异常耦合
+```text
+请严格根据当前目录下的PROMPT.md 中的内容，完成代码审阅与开发任务。
+```
 
----
+PROMPT.md 定义了 7 个阶段：
 
-## Phase 2 — 标准与风格审计
+### Phase 1: 代码库深度理解
+- 通读并映射整个代码库（每个源文件、头文件、测试文件、构建配置）
+- 输出架构文档：目录结构、公共 API、内部实现层、依赖关系、并发模型、内存管理
+- 生成依赖图，标记循环依赖
 
+### Phase 2: 标准与风格审计
 - C++17 only，无 C++20/23 特性，无编译器扩展
-- Google C++ Style Guide：命名规范、头文件保护 (`PROJECT_PATH_FILE_H_`)、include 顺序、访问修饰符、const 正确性、`explicit` 单参构造、无 `const&` 入参
-- Google C++ Guidelines：`std::optional/variant/string_view`、值语义、`[[nodiscard]]` 广泛使用、`= delete` 优于 private 未定义成员
+- Google C++ Style Guide：命名规范、头文件保护 `PROJECT_PATH_FILE_H_`、include 顺序、访问修饰符、const 正确性、`explicit` 单参构造
+- Google C++ Guidelines：值语义、`[[nodiscard]]` 广泛使用、`= delete` 优于 private 未定义成员
 - 接口优雅性：函数名可读、参数顺序一致、错误处理单一显式约定
-- **if/for/while 必须有大括号**，不允许省略
-- **函数命名 PascalCase**（访问器/修改器也不例外，统一 PascalCase）
-- **struct 成员无后缀下划线**（class 成员必须有）
 
----
-
-## Phase 3 — 安全性与可移植性（最高优先级）
-
-### 3a. 内存安全
-- 零原始 `new`/`delete`（除底层分配器内部）
-- 全部资源 RAII 包裹（fd、socket、锁、定时器）
+### Phase 3: 安全性与可移植性（最高优先级）
+- 零原始 new/delete（底层分配器外）、全部资源 RAII
 - 无未初始化读取、缓冲区边界检查、无隐式窄化转换
-- **零内存泄漏**、零 double-free
+- 共享可变状态全部受保护、审计锁顺序、无死锁
+- fd 耗尽有上界、内存耗尽优雅处理、无栈溢出
+- 避免 glibc 特定行为、32/64-bit clean、字节序显式处理
 
-### 3b. 线程安全
-- 识别全部共享可变状态，验证保护机制
-- 审计锁顺序，标记死锁隐患
-- 验证信号处理器 async-signal-safe
+### Phase 4: 性能审计
+- 缓存行对齐、热冷字段分离、prefetch 提示
+- epoll 边缘触发、非阻塞 I/O 全覆盖、背压传播
+- 空闲 CPU 近零、内存正比活跃连接、热路径零隐式分配
 
-### 3c. 资源安全
-- fd 耗尽有上界、错误传播不崩溃
-- `std::bad_alloc` 优雅处理、无栈溢出
-
-### 3d. Linux 可移植性
-- 避免 glibc 特定行为，测试 musl (Alpine)
-- 32/64-bit clean，字节序显式处理
-
----
-
-## Phase 4 — 性能审计
-
-- 缓存行对齐 + 避免 false sharing (`alignas(64)`)
-- 热路径数据分离、prefetch 提示
-- 背压传播 —— 慢消费者不能导致无界缓冲增长
-- 空闲 CPU 接近零（无忙等）、内存与活跃连接成正比、热路径无隐式分配
-
----
-
-## Phase 5 — 接口隔离与模块化
-
+### Phase 5: 接口隔离与模块化
 - Server/Client 独立可编译链接
-- 公共头文件自给自足
-- 版本化 ABI（`inline namespace v2_2_0`）
+- 公共头文件自给自足、Pimpl 或抽象接口隐藏实现
+- 版本化 ABI（inline namespaces）
+
+### Phase 6: 测试
+- 每条公共函数至少一个测试、每个错误路径都被覆盖
+- 边缘情况全部显式测试
+- 数据竞争压力测试 (ThreadSanitizer)、死锁检测、确定性仿真
+- 测试失败协议：绝不修改测试来通过测试——修复实现代码
+
+### Phase 7: 可交付物
+- 严重性分级发现摘要 (Critical/High/Medium/Low)
+- 每文件修复提交（单逻辑变更单 commit）
+- 性能基准测试结果（前后对比）
+- 测试覆盖报告
 
 ---
 
-## Phase 6 — 测试
+## 2. 架构修复
 
-- **每条公共函数至少一个测试**
-- **每个错误路径都被覆盖**
-- 边缘情况：空输入、最大输入、快速开关循环、零字节写入、部分读、超时
-- 数据竞争压力测试（ThreadSanitizer）、死锁检测、ABA 压力测试
-- **测试失败协议：绝不修改测试来通过测试。修复实现代码。**
-- **所有测试必须通过**：单元、集成、压力、对抗
+```text
+请按照你的作为世界级C++ 专家的视角来自主设计、正向的正确的
+解决你发现的"已识别但未修复（需要更深入讨论）"这几个问题，
+同时也编写大量的单元测试和压力测试
+```
 
----
-
-## Phase 7 — 可交付物
-
-1. 严重性分级发现摘要 (Critical/High/Medium/Low)
-2. 每文件修复提交（单逻辑变更单 commit）
-3. 测试覆盖报告
-4. **最终验证：clang-format 格式化 + 全部测试通过 + 推送到 GitHub**
+三个待修复问题：
+1. TreiberStack ABA 问题（无锁栈缺少 ABA 防护）
+2. 无背压机制（慢消费者导致无界缓冲增长）
+3. 事件循环无信号处理（SIGINT/SIGTERM 无法优雅关闭）
 
 ---
 
-## 架构修复任务（识别但未修复的问题）
+## 3. Google C++ Style 全局修正
 
-| # | 问题 | 严重性 | 修复 |
-|---|------|--------|------|
-| 1 | TreiberStack ABA 问题 | Medium | 标记指针 + 128 位 CAS（编译时选择 MutexStack 回退） |
-| 2 | 无背压机制 | Low | `max_inflight_ops` + `inflight_count_` + 原子门控 |
-| 3 | 事件循环无信号处理 | Low | `InstallSignalHandlers()` + `OnSignal()` + NOP 唤醒 |
+```text
+1. 不要出现v2_2_0这里namespace，当前是尚未发布过，第一版本。
+2. 很明显至少存在listen_fd()、last_error() 等大量明显不符合
+   Google C++ coding style的函数名称命名，请全局当前代码库扫描，
+   更正这些不规范的代码，同样的规范也要求类似于if条件后面的
+   花括号不能省略。
+3. 请深入全面理解Google C++ coding style相关规则，把除了上述以外
+   的其余错误找到（如果还存在其他错误的话）并更正。
+```
 
----
-
-## 代码风格修复（全局扫描）
-
-- **v1_0_0 → v2_2_0**：第一版使用 `v2_2_0` inline namespace
-- **全部函数命名 → PascalCase**：`listen_fd()`→`ListenFd()`，`last_error()`→`LastError()`，`data()`→`Data()`，`resize()`→`Resize()` 等
-- **struct 成员去下划线**：`size_`→`size`，`offset_`→`offset`
-- **if 条件加大括号**：不允许单行省略
-- **指针调用用 `->`**：修复 `task.SetDebugStr` → `task->SetDebugStr`
-- **friend 声明正确 namespace**：`IOHandler` 前向声明移出 `task` 子命名空间
-- **`[[nodiscard]]` 广泛使用**：但 `AddTask` 除外（内部调用不使用返回值）
-
----
-
-## 示例程序（12 个）
-
-要求全部示例：
-- 自包含、独立编译运行
-- 正确错误处理 + 优雅关闭 (`RequestShutdown` + `Join`)
-- 资源清理 (close fd, unlink temp files)
-- 覆盖全部主要特性
-
-| # | 示例 | 特性 |
-|---|------|------|
-| 1 | `read_file_example` | 基础读、`WaitForCompletion` |
-| 2 | `read_large_file_example` | 分块链式读、`FdOffset` |
-| 3 | `file_write_example` | 写 + 读回验证 |
-| 4 | `server_tcp_example` | TCP echo 服务器、信号关闭 |
-| 5 | `tcp_client_example` | connect → write → read 链 |
-| 6 | `tcp_wr_example` | 多消息客户端、repeat-forever |
-| 7 | `task_chain_example` | `SetNextTask` 显式链 |
-| 8 | `timeout_retry_example` | `SetTimeout` + `SetMaxRetryCount` |
-| 9 | `backpressure_example` | `max_inflight_ops` + 重试 |
-| 10 | `signal_shutdown_example` | `InstallSignalHandlers` 自定义 |
-| 11 | `custom_handler_example` | handler 带用户参数 |
-| 12 | `buffer_pool_example` | `BufferPool`/`ObjectPool` 直接使用 |
+要求：
+- inline namespace 改为第一版版本号
+- 全局函数命名改为 PascalCase（包括访问器/修改器，统一标准）
+- if/for/while 必须有大括号，不允许单行省略
+- struct 成员无后缀下划线，class 成员必须有后缀下划线
+- 扫描并修复所有其他 Google Style 违规
 
 ---
 
-## 测试验证协议
+## 4. 版本号回调 + 示例扩充
 
-```bash
-# 全部测试必须通过
-ctest --test-dir build -R "^unit/"        --output-on-failure
-ctest --test-dir build -R "^integration/" --output-on-failure
-ctest --test-dir build -R "^adversarial/" --output-on-failure
-ctest --test-dir build -R "^stress/"      --output-on-failure
+```text
+既然你还是保持version的namespace，还不如把版本号全面的改回v2_2_0，
+另外把examples中也补充全面的用户使用例子。
+```
 
-# clang-format 格式化
-find . -name '*.hpp' -o -name '*.cc' | xargs clang-format -i
+要求：
+- inline namespace 使用 `v2_2_0`
+- 补充覆盖全部主要特性的用户示例
+
+---
+
+## 5. 发布前最终审计
+
+```text
+请你作为世界级C++ 专家，再次全局审阅此代码，查看当前代码库是否符合
+对外发布条件，至少确保完全没有内存泄漏、Crash、线程不安全、死锁等
+问题，如果存在问题则完全正向、正确的修复。请运行所有的单元测试、
+压力测试等文件，确保都符合预期后，对当前的所有文件运行
+.clang_tidy的format格式化；并按照按照当前的详细架构设计、代码库说明、
+用户使用等更新README文档和LICENSE，然后推向github仓库。
+```
+
+要求：
+- 零内存泄漏、零 Crash、零线程不安全、零死锁
+- 运行全部单元测试、集成测试、压力测试、对抗测试
+- clang-format 全局格式化
+- 更新 README.md + LICENSE
+- 推送到 GitHub
+
+---
+
+## 6. WSL2 环境验证
+
+```text
+请你帮我完成，没有安装你就帮我安装，包括运行测试你想办法帮我验证
+（我本地有WSL2 环境，你可以把代码拿到拿到那里去验证）
 ```
 
 ---
 
-## 最终发布检查清单
+## 7. 跳过 apt 直接测试
 
-- [ ] 零内存泄漏
-- [ ] 零 Crash / SIGSEGV
-- [ ] 线程安全 (ABA-safe TreiberStack / CAS gate / DoneState)
-- [ ] 零死锁 (单锁或无锁路径)
-- [ ] 所有 29 个测试文件通过
-- [ ] 所有 12 个示例编译运行正确
-- [ ] clang-format 格式化
-- [ ] README.md 完整（架构、API 参考、配置、示例索引）
-- [ ] LICENSE 完整
-- [ ] GitHub 推送成功
+```text
+先不要下载apt了，先直接把对应的代码拷贝到WSL2下面运行，
+看看单测和example是不是都能正常通过
+```
+
+---
+
+## 8. 进度确认
+
+```text
+当前任务都完成了吗
+```
+
+---
+
+## 9. 清理 PROMPT.md + 验证示例
+
+```text
+PROMPT.md 需要删掉，另外随送前也可以运行验证以下example下的案例
+看是否符合预期
+```
+
+---
+
+## 10. 全量测试自动化
+
+```text
+tests 请你确保下面的所有都能运行通过，并且自己确认，
+不需要我来一直按yes
+```
+
+要求：全部单元/集成/压力/对抗测试自动化通过，无需用户交互确认。
+
+---
+
+## 11. 汇总输出 PROMPT.md
+
+```text
+请你把关于这个项目目前为止我给你说的所有prompt进行集中整理，
+输出为一个优雅的promptm.md文件
+```
+
+要求：将全部用户原始指令汇编成单个完整的 PROMPT.md 文件。
+
+---
+
+## 附录 — 完整指令时间线
+
+```
+初始审计 (Phase 1-7)
+  → 架构修复 (ABA + 背压 + 信号)
+    → Google C++ Style 全局修正 (命名 + 大括号 + struct/class 成员)
+      → 版本号回调 v2_2_0 + 12 个示例扩充
+        → 发布前最终审计 (安全 + 测试 + clang-format + 文档)
+          → WSL2 环境实际编译运行验证
+            → 全量测试自动化通过
+              → PROMPT.md 汇编输出
+```

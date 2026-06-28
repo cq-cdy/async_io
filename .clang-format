@@ -1,0 +1,53 @@
+# Talon Async I/O — clang-format configuration
+# Based on Google C++ Style Guide with project-specific adjustments.
+---
+Language:        Cpp
+BasedOnStyle:    Google
+Standard:        c++17
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+ColumnLimit:     100
+AccessModifierOffset: -1
+
+# Braces
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: InlineOnly
+
+# Spacing
+SpaceAfterCStyleCast: true
+SpacesInParentheses: false
+SpacesInAngles: false
+
+# Includes
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  # C system headers
+  - Regex:    '^<.*\.h>'
+    Priority: 1
+  # C++ standard library
+  - Regex:    '^<(cstd|string|vector|memory|atomic|thread|chrono|type_|tuple|functional|array|new|utility|cstd|ratio|climits|cstdio|cstdlib|cstring)>'
+    Priority: 2
+  # Other libraries (liburing, arpa, netinet, sys, unistd)
+  - Regex:    '^<(liburing|arpa|netinet|sys|unistd)'
+    Priority: 3
+  # Project headers
+  - Regex:    '^"async_io'
+    Priority: 4
+
+# Alignment
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+
+# Comments
+ReflowComments: true
+
+# Constructor initializers
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 4
+
+# Allow certain one-line patterns for readability
+AllowShortCaseLabelsOnASingleLine: true

@@ -130,24 +130,28 @@ public:
         // Reserve an inflight slot before submitting.  If the limit is
         // reached, transition the task back to ready so the caller may
         // retry later.
-        if (config_.max_inflight_ops > 0) {
-            int64_t cur = inflight_count_.load(std::memory_order_relaxed);
-            while (cur < config_.max_inflight_ops) {
-                if (inflight_count_.compare_exchange_weak(cur, cur + 1,
-                        std::memory_order_relaxed))
-                    goto submit;
+        {
+            bool slot_reserved = false;
+            if (config_.max_inflight_ops > 0) {
+                int64_t cur = inflight_count_.load(std::memory_order_relaxed);
+                while (cur < config_.max_inflight_ops) {
+                    if (inflight_count_.compare_exchange_weak(cur, cur + 1,
+                            std::memory_order_relaxed)) {
+                        slot_reserved = true;
+                        break;
+                    }
+                }
+                if (!slot_reserved) {
+                    task->task_state_.store(task::TaskState::kReady,
+                                            std::memory_order_release);
+                    DebugLog("AddTask backpressure, inflight=%ld max=%d\n",
+                             (long)cur, config_.max_inflight_ops);
+                    return false;
+                }
+            } else {
+                inflight_count_.fetch_add(1, std::memory_order_relaxed);
             }
-            // Backpressure: no slot available.  Roll back the state
-            // transition so the caller can retry.
-            task->task_state_.store(task::TaskState::kReady,
-                                    std::memory_order_release);
-            DebugLog("AddTask backpressure, inflight=%ld max=%d\n",
-                     (long)cur, config_.max_inflight_ops);
-            return false;
-        } else {
-            inflight_count_.fetch_add(1, std::memory_order_relaxed);
         }
-    submit:
         task->MarkDetachedAndComplete(false);
         task->is_cancel_.store(false, std::memory_order_release);
         DebugLog("AddTask ok, fd=%d\n", task->fd_);
@@ -201,7 +205,7 @@ private:
     void DispatchCqe(task::AsyncTask<>* tp, task::EventFlag et, int res) {
         auto st = tp->task_state_.load(std::memory_order_acquire);
         if (st != task::TaskState::kSubmitted && st != task::TaskState::kReady) {
-            DebugLog("Skip CQE fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).Data());
+            DebugLog("Skip CQE fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).data());
             return;  // Stale CQE — inflight was already decremented.
         }
         if (tp->is_cancel_.load(std::memory_order_acquire)) {
@@ -258,7 +262,7 @@ private:
                 HandleConnect(task, sqe); break;
             default:
                 DebugLog("SubmitTask: unsupported type %s fd=%d\n",
-                    task::TaskTypeName(task->task_type_).Data(), task->fd_);
+                    task::TaskTypeName(task->task_type_).data(), task->fd_);
                 task->buffer_->SetBytesTransferred(-EINVAL);
                 task->buffer_->SetActiveFileDescriptor(task->fd_);
                 QueueFailedTask(task); return;
@@ -358,7 +362,7 @@ private:
     bool HandleTimeoutTask(task::AsyncTask<Ret_, UserArgs_...>* tp) {
         auto st = tp->task_state_.load(std::memory_order_acquire);
         if (st != task::TaskState::kSubmitted && st != task::TaskState::kReady) {
-            DebugLog("HandleTimeoutTask skip fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).Data());
+            DebugLog("HandleTimeoutTask skip fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).data());
             return false;
         }
         tp.SetDebugStr("timed out");

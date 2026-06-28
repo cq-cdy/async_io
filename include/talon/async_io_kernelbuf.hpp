@@ -55,7 +55,7 @@ struct KernelBuf {
         switch (storage_tag_) {
             case StorageTag::kSbo:  return sbo_data_;
             case StorageTag::kPool: return pool_data_;
-            case StorageTag::kHeap: return heap_vec_.Data();
+            case StorageTag::kHeap: return heap_vec_.data();
             case StorageTag::kNone: return nullptr;
         }
         return nullptr;
@@ -112,7 +112,7 @@ private:
             storage_tag_ = StorageTag::kHeap;
             new (&heap_vec_) std::vector<char>(size);
         }
-        size = size;
+        this->size = size;
     }
 
     void DestroyStorage() {

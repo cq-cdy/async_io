@@ -40,7 +40,7 @@ TEST_CASE("file read to /dev/null") {
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -71,7 +71,7 @@ TEST_CASE("file read small temp file") {
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -105,7 +105,7 @@ TEST_CASE("file write and read back") {
         };
 
         auto* wt = CreateTaskWithHandler(fd, wh);
-        wt.SetTaskType(TaskType::kWrite);
+        wt->SetTaskType(TaskType::kWrite);
         const char* msg = "test data";
         wt->Buffer()->Resize(std::strlen(msg));
         std::memcpy(wt->Buffer()->Data(), msg, std::strlen(msg));
@@ -132,7 +132,7 @@ TEST_CASE("file write and read back") {
         };
 
         auto* rt = CreateTaskWithHandler(fd, rh);
-        rt.SetTaskType(TaskType::kRead);
+        rt->SetTaskType(TaskType::kRead);
         io.AddTask(rt);
         io.Flush();
 
@@ -166,7 +166,7 @@ TEST_CASE("file read empty file") {
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -192,7 +192,7 @@ TEST_CASE("file read bad fd") {
     };
 
     auto* t = CreateTaskWithHandler(-1, h);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -220,7 +220,7 @@ TEST_CASE("file IO many sequential operations") {
     // Submit 50 read tasks (each will read 0 bytes from empty file = EOF).
     for (int i = 0; i < 50; i++) {
         auto* t = CreateTaskWithHandler(fd, handler);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();

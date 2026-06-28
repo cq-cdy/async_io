@@ -23,8 +23,8 @@ TEST_CASE("retry on failure fires handler eventually") {
     };
 
     auto* t = CreateTaskWithHandler(-1, h);
-    t.SetTaskType(TaskType::kRead);
-    t.SetMaxRetryCount(3);  // Retry up to 3 times
+    t->SetTaskType(TaskType::kRead);
+    t->SetMaxRetryCount(3);  // Retry up to 3 times
     io.AddTask(t);
     io.Flush();
 
@@ -44,8 +44,8 @@ TEST_CASE("retry count zero means no retry") {
     REQUIRE(io.Initialized());
 
     auto* t = CreateTaskWithHandler(-1);
-    t.SetTaskType(TaskType::kRead);
-    t.SetMaxRetryCount(0);
+    t->SetTaskType(TaskType::kRead);
+    t->SetMaxRetryCount(0);
     CHECK_FALSE(t->RepeatWhenFailed());
     delete t;
 
@@ -55,7 +55,7 @@ TEST_CASE("retry count zero means no retry") {
 
 TEST_CASE("retry count negative means no retry by default") {
     auto* t = CreateTaskWithHandler(1);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     // Default is -1, repeat_when_failed checks > 0
     CHECK_FALSE(t->RepeatWhenFailed());
     delete t;

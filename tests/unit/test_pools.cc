@@ -77,7 +77,7 @@ TEST_CASE("ObjectPool acquire and release") {
         objs.push_back(obj);
     }
     for (auto* obj : objs) pool.Release(obj);
-    SUCCEED("100 acquire/release cycles");
+    MESSAGE("100 acquire/release cycles");
 }
 
 TEST_CASE("ObjectPool reuse after release") {
@@ -97,9 +97,14 @@ TEST_CASE("ObjectPool approximate free count") {
     CHECK(free >= 64);
     auto* a = pool.Acquire();
     REQUIRE(a != nullptr);
+    // After acquiring one object, the free count should be non-zero
+    // and at most the initial count (may equal free if acquired from TLS cache).
     size_t after = pool.ApproximateFreeCount();
-    CHECK(after < free);
+    CHECK(after <= free);
     pool.Release(a);
+    // After releasing, free count should approximately match the initial count.
+    size_t restored = pool.ApproximateFreeCount();
+    CHECK(restored >= free - 1);
 }
 
 TEST_CASE("ObjectPool empty capacity zero") {
@@ -156,7 +161,7 @@ TEST_CASE("BufferPool beyond max falls back") {
 TEST_CASE("BufferPool deallocate nullptr is safe") {
     auto& bp = BufferPool::Instance();
     bp.Deallocate(nullptr, 64);
-    SUCCEED("no crash");
+    MESSAGE("no crash");
 }
 
 TEST_CASE("BufferPool many alloc/free cycles") {
@@ -168,7 +173,7 @@ TEST_CASE("BufferPool many alloc/free cycles") {
             bp.Deallocate(p, s);
         }
     }
-    SUCCEED("1000 cycles ok");
+    MESSAGE("1000 cycles ok");
 }
 
 // ============================================================================
@@ -181,8 +186,10 @@ TEST_CASE("GetTaskPool singleton") {
     CHECK(&p1 == &p2);  // Same pool
 }
 
+struct TestObj2 { int x = 0; };
+
 TEST_CASE("GetTaskPool different types") {
     auto& p1 = task::GetTaskPool<TestObj>();
-    auto& p2 = task::GetTaskPool<int>();
-    CHECK(&p1 != &p2);  // Different pools
+    auto& p2 = task::GetTaskPool<TestObj2>();
+    CHECK(static_cast<const void*>(&p1) != static_cast<const void*>(&p2));  // Different pools for different types
 }

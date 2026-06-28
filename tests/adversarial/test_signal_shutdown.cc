@@ -54,7 +54,7 @@ TEST_CASE("signal: RequestShutdown is safe to call multiple times") {
     io.RequestShutdown();  // Triple call.
     io.Join();
 
-    SUCCEED("Multiple RequestShutdown calls are safe");
+    MESSAGE("Multiple RequestShutdown calls are safe");
 }
 
 TEST_CASE("signal: shutdown while tasks are pending") {
@@ -70,7 +70,7 @@ TEST_CASE("signal: shutdown while tasks are pending") {
     // Submit tasks but don't flush — shutdown should still work.
     for (int i = 0; i < 100; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();
@@ -91,7 +91,7 @@ TEST_CASE("signal: OnSignal static method is safe") {
     IOHandler io;
     REQUIRE(io.Initialized());
 
-    io.InstallSignalHandlers();
+    REQUIRE(io.InstallSignalHandlers());
 
     // Simulate signal delivery by calling OnSignal directly.
     // This should be safe even if called from a signal context.
@@ -100,7 +100,7 @@ TEST_CASE("signal: OnSignal static method is safe") {
     // The event loop should have been requested to shut down.
     io.Join();
 
-    SUCCEED("OnSignal delivered");
+    MESSAGE("OnSignal delivered");
 }
 
 TEST_CASE("signal: shutdown then join twice is safe") {
@@ -111,5 +111,5 @@ TEST_CASE("signal: shutdown then join twice is safe") {
     io.Join();
     io.Join();  // Second join should be safe (no-op).
 
-    SUCCEED("Double join is safe");
+    MESSAGE("Double join is safe");
 }

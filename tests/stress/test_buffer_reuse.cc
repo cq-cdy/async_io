@@ -18,7 +18,7 @@ TEST_CASE("KernelBuf reuse SBO tier") {
         kb[0] = char(i % 256);
         kb[255] = char((i + 1) % 256);
     }
-    SUCCEED("1000 SBO alloc/free cycles");
+    MESSAGE("1000 SBO alloc/free cycles");
 }
 
 TEST_CASE("KernelBuf reuse pool tier") {
@@ -29,7 +29,7 @@ TEST_CASE("KernelBuf reuse pool tier") {
         kb[0] = 'P';
         kb[4095] = 'Q';
     }
-    SUCCEED("500 pool alloc/free cycles");
+    MESSAGE("500 pool alloc/free cycles");
 }
 
 TEST_CASE("KernelBuf mixed tier reuse") {
@@ -41,7 +41,7 @@ TEST_CASE("KernelBuf mixed tier reuse") {
         { KernelBuf kb(128); CHECK(kb.Data() != nullptr); }      // SBO
         { KernelBuf kb(65536); CHECK(kb.Data() != nullptr); }    // Pool (max)
     }
-    SUCCEED("mixed tier reuse ok");
+    MESSAGE("mixed tier reuse ok");
 }
 
 TEST_CASE("KernelBuf resize triggers reallocation correctly") {
@@ -74,5 +74,5 @@ TEST_CASE("BufferPool allocating max size class") {
         bp.Deallocate(p, 65536);
     }
     // If p is null, class init might not have happened — still not a crash.
-    SUCCEED("max class size handled gracefully");
+    MESSAGE("max class size handled gracefully");
 }

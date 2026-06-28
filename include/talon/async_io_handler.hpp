@@ -118,10 +118,10 @@ public:
     // --- Task Submission ---
 
     template <typename Ret_, typename... UserArgs_>
-    [[nodiscard]] bool AddTask(task::AsyncTask<Ret_, UserArgs_...>* task) {
+    bool AddTask(task::AsyncTask<Ret_, UserArgs_...>* task) {
         if (task == nullptr) { DebugLog("AddTask: null\n"); return false; }
         if (!TryTransitionToSubmitted(task)) {
-            task.SetDebugStr("failed: already executing");
+            task->SetDebugStr("failed: already executing");
             task->detach_.store(false, std::memory_order_release);
             return false;
         }
@@ -173,6 +173,10 @@ public:
     void Join() { if (event_thread_.joinable()) event_thread_.join(); }
 
 private:
+    // Delete a task through its base class pointer so that the correct
+    // operator delete (pool vs. heap) is resolved via the virtual destructor
+    // of the dynamic type, not the static type AsyncTask<>.
+    static void DeleteTask(task::Task* t) { delete t; }
     // ========================================================================
     // Event Loop
     // ========================================================================
@@ -211,7 +215,7 @@ private:
         if (tp->is_cancel_.load(std::memory_order_acquire)) {
             tp->MarkDetachedAndComplete(true);
             tp->SetTaskState(task::TaskState::kCanceled);
-            delete tp;
+            DeleteTask(tp);
             inflight_count_.fetch_sub(1, std::memory_order_relaxed);
             return;
         }
@@ -288,9 +292,11 @@ private:
     }
 
     void AutoFlush() {
-        uint32_t used = io_uring_sq_ready(uring_.get());
-        if (used * 100 >= uring_->sq.ring_entries * config_.auto_flush_threshold_percent)
-            io_uring_submit(uring_.get());
+        // Always submit to ensure re-submissions (repeat_forever, chained
+        // tasks) are visible to the kernel immediately.  The io_uring
+        // syscall is cheap for small SQ sizes; batching can be achieved
+        // by submitting multiple tasks before calling Flush().
+        io_uring_submit(uring_.get());
     }
 
     // ========================================================================
@@ -304,19 +310,43 @@ private:
 
         if (res < 0) {
             if (res == -EAGAIN || res == -EWOULDBLOCK) {
-                while (!AddTask(tp)) std::this_thread::yield(); return;
+                while (!AddTask(tp)) { std::this_thread::yield(); }
+                return;
             }
             if (res == -ECANCELED) {
                 if (tp->timeout_ms_ > 0) HandleTimeoutEvent(tp);
-                else { tp.SetDebugStr("cancelled by kernel");
+                else { tp->SetDebugStr("cancelled by kernel");
                        tp->MarkDetachedAndComplete(true);
-                       tp->SetTaskState(task::TaskState::kCanceled); delete tp; }
+                       tp->SetTaskState(task::TaskState::kCanceled); DeleteTask(tp); }
                 return;
             }
             HandleIoFailure(tp); return;
         }
 
-        if (res == 0) { HandleConnectionClose(tp); return; }
+        if (res == 0) {
+            // res == 0 means EOF for regular files and peer-close for sockets.
+            // Always invoke the handler so the user sees the result.  The
+            // handler / task pattern (repeat_forever, task chain, retry)
+            // decides the next step — we do not auto-delete here.
+            tp->ExecuteCompletionHandler();
+            if (!tp->RepeatForever() && !tp->NextTask()) {
+                // One-shot with EOF/close: close the fd and deliver the result.
+                if (tp->fd_ > 0) { close(tp->fd_); tp->fd_ = -1; }
+                tp->MarkDetachedAndComplete(true);
+                tp->SetTaskState(task::TaskState::kSuccess);
+                DeleteTask(tp);
+            } else {
+                // Repeat-forever or chained: let the normal path handle it.
+                tp->SetTaskState(task::TaskState::kSuccess);
+                if (tp->RepeatForever()) { AddTask(tp); }
+                else { tp->detach_.store(true, std::memory_order_release); }
+                if (tp->NextTask()) {
+                    auto* n = tp->ReleaseNextTask();
+                    AddTask(static_cast<task::AsyncTask<>*>(n));
+                }
+            }
+            return;
+        }
         tp->ExecuteCompletionHandler();
 
         if (tp->RepeatForever()) { tp->SetTaskState(task::TaskState::kSuccess); AddTask(tp); }
@@ -338,7 +368,7 @@ private:
     void HandleCancelEvent(task::AsyncTask<Ret_, UserArgs_...>* tp) {
         tp->is_cancel_.store(true, std::memory_order_release);
         DebugLog("Canceled fd=%d\n", tp->fd_);
-        tp.SetDebugStr("cancelled");
+        tp->SetDebugStr("cancelled");
     }
 
     template <typename Ret_, typename... UserArgs_>
@@ -355,7 +385,7 @@ private:
             auto* n = tp->ReleaseNextTask();
             AddTask(static_cast<task::AsyncTask<>*>(n));
         }
-        delete tp;
+        DeleteTask(tp);
     }
 
     template <typename Ret_, typename... UserArgs_>
@@ -365,24 +395,27 @@ private:
             DebugLog("HandleTimeoutTask skip fd=%d state=%s\n", tp->fd_, task::TaskStateName(st).data());
             return false;
         }
-        tp.SetDebugStr("timed out");
+        tp->SetDebugStr("timed out");
         DebugLog("Timeout fd=%d\n", tp->fd_);
         tp->MarkDetachedAndComplete(true);
         std::atomic_thread_fence(std::memory_order_seq_cst);
         tp->SetTaskState(task::TaskState::kTimeout);
-        delete tp; return false;
+        DeleteTask(tp); return false;
     }
 
     template <typename Ret_, typename... UserArgs_>
     bool HandleFailedTask(task::AsyncTask<Ret_, UserArgs_...>* tp) {
         int cur = tp->try_count_.fetch_add(1, std::memory_order_relaxed) + 1;
         if (cur < tp->max_retry_count_) { tp->SetTaskState(task::TaskState::kReady); AddTask(tp); return true; }
-        tp.SetDebugStr("failed after " + std::to_string(cur) + " retries");
+        // Final failure: invoke the handler so the user sees the errno,
+        // then mark detached and delete.
+        tp->ExecuteCompletionHandler();
+        tp->SetDebugStr("failed after " + std::to_string(cur) + " retries");
         tp->try_count_.store(0, std::memory_order_relaxed);
         tp->MarkDetachedAndComplete(true);
         std::atomic_thread_fence(std::memory_order_seq_cst);
         tp->SetTaskState(task::TaskState::kFailed);
-        delete tp; return false;
+        DeleteTask(tp); return false;
     }
 
     template <typename Ret_, typename... UserArgs_>
@@ -411,7 +444,7 @@ private:
         if (buf == nullptr || buf->size < sizeof(sockaddr_in)) return false;
         auto* addr = reinterpret_cast<sockaddr_in*>(buf->Data());
         if (addr->sin_family != AF_INET) return false;
-        if (ntohs(addr->sin_port) == 0 || ntohs(addr->sin_port) > 65535) return false;
+        if (ntohs(addr->sin_port) == 0) return false;
         char ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &addr->sin_addr, ip, INET_ADDRSTRLEN);
         if (std::strcmp(ip, "0.0.0.0") == 0) return false;
@@ -425,7 +458,9 @@ private:
     void QueueFailedTask(task::AsyncTask<Ret_, UserArgs_...>* task) {
         auto* sqe = io_uring_get_sqe(uring_.get());
         if (sqe == nullptr) { HandleFailedTask(task); return; }
-        struct __kernel_timespec ts = {.tv_sec = 0, .tv_nsec = 0};
+        struct __kernel_timespec ts {};
+        ts.tv_sec = 0;
+        ts.tv_nsec = 0;
         io_uring_prep_timeout(sqe, &ts, 0, 0);
         sqe->user_data = reinterpret_cast<uintptr_t>(task) | kErrorFlag;
         io_uring_submit(uring_.get());

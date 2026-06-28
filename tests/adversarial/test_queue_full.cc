@@ -27,7 +27,7 @@ TEST_CASE("submit more tasks than max_entries") {
     // Submit far more tasks than the ring can hold at once.
     for (int i = 0; i < 200; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         if (io.AddTask(t)) {
             submitted.fetch_add(1, std::memory_order_relaxed);
         }
@@ -60,7 +60,7 @@ TEST_CASE("queue full does not crash") {
 
     for (int i = 0; i < 300; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();
@@ -70,5 +70,5 @@ TEST_CASE("queue full does not crash") {
     close(fd);
     io.RequestShutdown();
     io.Join();
-    SUCCEED("queue full handled gracefully");
+    MESSAGE("queue full handled gracefully");
 }

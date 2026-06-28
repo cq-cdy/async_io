@@ -48,7 +48,7 @@ TEST_CASE("TCP client connect to refused port") {
     TcpClient client(io);
 
     std::atomic<bool> done{false};
-    int ret_code = 0;
+    (void)0;
 
     auto* task = client.Connect("127.0.0.1", 19998);
     if (task != nullptr) {

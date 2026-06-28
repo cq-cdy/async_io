@@ -21,13 +21,13 @@ TEST_CASE("cancel task that was submitted") {
     auto h = [&](KernelBuf*) { handler_called.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
-    t.SetTimeout(5000);
+    t->SetTaskType(TaskType::kRead);
+    t->SetTimeout(5000);
     io.AddTask(t);
     io.Flush();
 
     // Immediately cancel.
-    t->Cancel(io.IoUring());
+    (void)t->Cancel(io.IoUring());
 
     // Wait a bit.
     for (int i = 0; i < 200; i++)
@@ -40,7 +40,7 @@ TEST_CASE("cancel task that was submitted") {
 
 TEST_CASE("cancel with nullptr uring returns zero") {
     auto* t = CreateTaskWithHandler(1);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     __u64 r = t->Cancel(nullptr);
     CHECK(r == 0);
     delete t;

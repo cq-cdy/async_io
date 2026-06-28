@@ -21,7 +21,7 @@ TEST_CASE("lifetime task destroyed before IOHandler shutdown") {
     auto h = [&](KernelBuf*) { handler_called.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -48,7 +48,7 @@ TEST_CASE("lifetime IOHandler destroyed after tasks complete") {
         auto h = [&](KernelBuf*) { done.store(true, std::memory_order_release); };
 
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         io.AddTask(t);
         io.Flush();
 
@@ -62,7 +62,7 @@ TEST_CASE("lifetime IOHandler destroyed after tasks complete") {
     }
 
     close(fd);
-    SUCCEED("IOHandler destroyed cleanly");
+    MESSAGE("IOHandler destroyed cleanly");
 }
 
 TEST_CASE("lifetime WaitForCompletion on never-submitted task") {
@@ -84,7 +84,7 @@ TEST_CASE("lifetime WaitForCompletion on completed task") {
     auto h = [&](KernelBuf*) { handler_done.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     io.AddTask(t);
     io.Flush();
 
@@ -106,8 +106,8 @@ TEST_CASE("lifetime task object pool reuse across many create/delete") {
     constexpr int kCycles = 500;
     for (int i = 0; i < kCycles; i++) {
         auto* t = CreateTaskWithHandler(i % 100);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         delete t;
     }
-    SUCCEED("500 create/delete cycles ok");
+    MESSAGE("500 create/delete cycles ok");
 }

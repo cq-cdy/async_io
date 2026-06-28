@@ -88,9 +88,26 @@ struct AsyncIoConfig {
 // DebugLog
 // ============================================================================
 
+// ============================================================================
+// DebugLog — compile-time gated diagnostic output.
+// ============================================================================
+//
+// Two overloads so that calls with no format arguments use fputs (which
+// does not trigger -Wformat-security) while variadic calls use fprintf.
+// The -Wno-format-security flag is added in CMakeLists.txt since the
+// format attribute cannot be applied to template parameter packs in C++17.
+
+inline void DebugLog(const char* msg) noexcept {
+    if constexpr (kDebugEnabled) {
+        std::fputs(msg, stderr);
+    }
+}
+
 template <typename... Args>
 inline void DebugLog(const char* fmt, Args&&... args) noexcept {
     if constexpr (kDebugEnabled) {
+        // All call sites use string literals; -Wformat-security is
+        // suppressed for the whole library in CMakeLists.txt.
         std::fprintf(stderr, fmt, std::forward<Args>(args)...);
     }
 }

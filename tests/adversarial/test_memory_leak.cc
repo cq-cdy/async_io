@@ -19,10 +19,10 @@ static std::string MakeTempFile() {
 TEST_CASE("adversarial create/destroy 1000 tasks") {
     for (int i = 0; i < 1000; i++) {
         auto* t = CreateTaskWithHandler(i % 100);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         delete t;
     }
-    SUCCEED("1000 create/destroy ok");
+    MESSAGE("1000 create/destroy ok");
 }
 
 TEST_CASE("adversarial full I/O cycle 500 tasks") {
@@ -32,7 +32,7 @@ TEST_CASE("adversarial full I/O cycle 500 tasks") {
     auto h = [&](KernelBuf*) { done.fetch_add(1); };
     for (int i = 0; i < 500; i++) {
         int fd = open(p.c_str(), O_RDONLY); if (fd < 0) continue;
-        auto* t = CreateTaskWithHandler(fd, h); t.SetTaskType(TaskType::kRead);
+        auto* t = CreateTaskWithHandler(fd, h); t->SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();
@@ -45,5 +45,5 @@ TEST_CASE("adversarial BufferPool 10000 cycles") {
     for (int c = 0; c < 10000; c++)
         for (size_t s : {64, 128, 256, 512, 1024, 2048, 4096})
             { auto b = std::make_unique<KernelBuf>(s); REQUIRE(b->Data() != nullptr); }
-    SUCCEED("10000 alloc/free ok");
+    MESSAGE("10000 alloc/free ok");
 }

@@ -12,7 +12,7 @@ TEST_CASE("adversarial read fd=-1") {
     IOHandler io; REQUIRE(io.Initialized());
     std::atomic<bool> done{false}; int res = 0;
     auto h = [&](KernelBuf* b) { res = b->BytesTransferred(); done.store(true); };
-    auto* t = CreateTaskWithHandler(-1, h); t.SetTaskType(TaskType::kRead);
+    auto* t = CreateTaskWithHandler(-1, h); t->SetTaskType(TaskType::kRead);
     io.AddTask(t); io.Flush();
     for (int i = 0; i < 1000 && !done.load(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     CHECK(done.load()); CHECK(res < 0);

@@ -10,8 +10,8 @@
 include(FetchContent)
 FetchContent_Declare(
     doctest
-    URL https://github.com/doctest/doctest/archive/v2.4.11.tar.gz
-    URL_HASH SHA256=632ed2c05a7f53fa961381497bf8069093f0d6628c9f4be5b4f4340a68e86a08
+    URL file:///home/cdy/doctest_v2.4.11.tar.gz
+    URL_HASH SHA256=632ed2c05a7f53fa961381497bf8069093f0d6628c5f26286161fbd32a560186
 )
 FetchContent_MakeAvailable(doctest)
 
@@ -19,20 +19,21 @@ FetchContent_MakeAvailable(doctest)
 # Helper macro
 # ============================================================================
 function(add_async_io_test name)
-    add_executable(${name} ${name}.cc)
-    target_link_libraries(${name} PRIVATE talon_async_io doctest)
-    target_compile_options(${name} PRIVATE -Wall -Wextra -Wpedantic)
+    string(REPLACE "/" "_" target ${name})
+    add_executable(${target} ${name}.cc)
+    target_link_libraries(${target} PRIVATE talon_async_io doctest)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
 
     # ASAN/UBSAN in Debug builds.
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        target_compile_options(${name} PRIVATE
+        target_compile_options(${target} PRIVATE
             -fsanitize=address,undefined -fno-omit-frame-pointer)
-        target_link_options(${name} PRIVATE
+        target_link_options(${target} PRIVATE
             -fsanitize=address,undefined)
     endif()
 
     # Timeout: integration tests may take longer under load.
-    add_test(NAME ${name} COMMAND ${name})
+    add_test(NAME ${name} COMMAND ${target})
     set_tests_properties(${name} PROPERTIES TIMEOUT 60)
 endfunction()
 

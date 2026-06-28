@@ -23,7 +23,7 @@ TEST_CASE("shutdown while tasks are in flight") {
     // Submit many tasks.
     for (int i = 0; i < 200; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
     io.Flush();
@@ -46,7 +46,7 @@ TEST_CASE("double shutdown is safe") {
     io.RequestShutdown();  // Double shutdown — should be safe.
     io.Join();
 
-    SUCCEED("double shutdown ok");
+    MESSAGE("double shutdown ok");
 }
 
 TEST_CASE("shutdown without any tasks submitted") {
@@ -57,7 +57,7 @@ TEST_CASE("shutdown without any tasks submitted") {
     io.RequestShutdown();
     io.Join();
 
-    SUCCEED("empty shutdown ok");
+    MESSAGE("empty shutdown ok");
 }
 
 TEST_CASE("rapid init shutdown cycles") {
@@ -68,5 +68,5 @@ TEST_CASE("rapid init shutdown cycles") {
             io.Join();
         }
     }
-    SUCCEED("10 init/shutdown cycles ok");
+    MESSAGE("10 init/shutdown cycles ok");
 }

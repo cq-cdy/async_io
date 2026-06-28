@@ -30,23 +30,15 @@ public:
     //
     // The returned task has type kConnect and the sockaddr_in stored in its
     // buffer.  Call io.AddTask(task) to submit it.
-    template <typename... Args>
-    [[nodiscard]] task::AsyncTask<void>* Connect(const std::string& ip, int port,
-                                   Args&&... handler_args) {
-        int sockfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-        if (sockfd < 0) {
-            last_error_ = std::string("socket() failed: ") + strerror(errno);
-            return nullptr;
-        }
-
-        struct sockaddr_in addr = {};
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) {
-            last_error_ = "inet_pton() failed for " + ip;
-            close(sockfd);
-            return nullptr;
-        }
+    //
+    // Overloads:
+    //   Connect(ip, port)           — uses a default no-op handler
+    //   Connect(ip, port, handler)  — uses the provided handler (KernelBuf*)
+    //   Connect(ip, port, h, a...)  — handler with bound user arguments
+    [[nodiscard]] task::AsyncTask<void>* Connect(const std::string& ip, int port) {
+        int sockfd = -1;
+        struct sockaddr_in addr = PrepareSocket(ip, port, &sockfd);
+        if (sockfd < 0) return nullptr;
 
         auto handler = [](task::KernelBuf* buf) {
             int r = buf->BytesTransferred();
@@ -55,21 +47,60 @@ public:
             else       DebugLog("Connected fd=%d\n", fd);
         };
 
-        auto* task = task::CreateTaskWithHandler(sockfd, handler,
-                                                  std::forward<Args>(handler_args)...);
-        task.SetTaskType(task::TaskType::kConnect);
-        task.SetTimeout(config_.connect_timeout_ms);
-        task->Buffer()->Resize(sizeof(addr));
-        std::memcpy(task->Buffer()->Data(), &addr, sizeof(addr));
-        return task;
+        auto* task = task::CreateTaskWithHandler(sockfd, handler);
+        return FinalizeConnectTask(task, addr);
+    }
+
+    template <typename Func, typename... Args>
+    [[nodiscard]] task::AsyncTask<void>* Connect(const std::string& ip, int port,
+                                                  Func&& handler, Args&&... args) {
+        int sockfd = -1;
+        struct sockaddr_in addr = PrepareSocket(ip, port, &sockfd);
+        if (sockfd < 0) return nullptr;
+
+        auto* task = task::CreateTaskWithHandler(sockfd, std::forward<Func>(handler),
+                                                  std::forward<Args>(args)...);
+        return FinalizeConnectTask(task, addr);
     }
 
     [[nodiscard]] const std::string& LastError() const noexcept { return last_error_; }
 
 private:
+    struct sockaddr_in PrepareSocket(const std::string& ip, int port, int* out_fd) {
+        struct sockaddr_in addr = {};
+        int sockfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+        if (sockfd < 0) {
+            last_error_ = std::string("socket() failed: ") + strerror(errno);
+            *out_fd = -1;
+            return addr;
+        }
+
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) {
+            last_error_ = "inet_pton() failed for " + ip;
+            close(sockfd);
+            *out_fd = -1;
+            return addr;
+        }
+
+        *out_fd = sockfd;
+        return addr;
+    }
+
+    template <typename Ret, typename... UserArgs>
+    task::AsyncTask<Ret>* FinalizeConnectTask(task::AsyncTask<Ret>* task,
+                                               const struct sockaddr_in& addr) {
+        task->SetTaskType(task::TaskType::kConnect);
+        task->SetTimeout(config_.connect_timeout_ms);
+        task->Buffer()->Resize(sizeof(addr));
+        std::memcpy(task->Buffer()->Data(), &addr, sizeof(addr));
+        return task;
+    }
+
     IOHandler& io_;
     AsyncIoConfig config_;
-    std::string last_error_;
+    mutable std::string last_error_;
 };
 
 }  // namespace v2_2_0

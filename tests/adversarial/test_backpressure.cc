@@ -32,7 +32,7 @@ TEST_CASE("backpressure: AddTask respects max_inflight_ops") {
     // Submit tasks — first 10 should be accepted, the rest rejected.
     for (int i = 0; i < 50; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         if (io.AddTask(t)) accepted.fetch_add(1);
         else rejected.fetch_add(1);
     }
@@ -49,7 +49,7 @@ TEST_CASE("backpressure: AddTask respects max_inflight_ops") {
     int after_flush_accepted = 0;
     for (int i = 0; i < 5; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         if (io.AddTask(t)) after_flush_accepted++;
     }
 
@@ -78,7 +78,7 @@ TEST_CASE("backpressure: inflight_count is monotonic") {
     int accepted = 0;
     for (int i = 0; i < 100; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         if (io.AddTask(t)) accepted++;
     }
     io.Flush();
@@ -115,7 +115,7 @@ TEST_CASE("backpressure: zero max_inflight means no limit") {
     int accepted = 0;
     for (int i = 0; i < 500; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         if (io.AddTask(t)) accepted++;
     }
     // Without a limit, all should be accepted.
@@ -144,13 +144,13 @@ TEST_CASE("backpressure: rejected task can be retried") {
     // Fill the queue.
     for (int i = 0; i < 5; i++) {
         auto* t = CreateTaskWithHandler(fd, h);
-        t.SetTaskType(TaskType::kRead);
+        t->SetTaskType(TaskType::kRead);
         io.AddTask(t);
     }
 
     // This one should be rejected.
     auto* extra = CreateTaskWithHandler(fd, h);
-    extra.SetTaskType(TaskType::kRead);
+    extra->SetTaskType(TaskType::kRead);
     CHECK_FALSE(io.AddTask(extra));
 
     // Flush and wait — backpressure should ease.

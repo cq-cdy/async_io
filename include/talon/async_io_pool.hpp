@@ -144,13 +144,18 @@ class ObjectPool {
 public:
     explicit ObjectPool(size_t capacity = kObjectPoolDefaultCapacity,
                         size_t grow_batch = kObjectPoolGrowBatch)
-        : capacity_(capacity), grow_batch_(grow_batch) { GrowPool(capacity_); }
+        : capacity_(capacity), grow_batch_(grow_batch) {
+        // Reset the TLS cache for this thread to avoid stale pointers from a
+        // previous ObjectPool<T> instance that was destroyed and recreated.
+        tls_cache_.Reset();
+        GrowPool(capacity_);
+    }
 
     ~ObjectPool() { for (auto* block : storage_blocks_) std::free(block); }
     ObjectPool(const ObjectPool&) = delete;
     ObjectPool& operator=(const ObjectPool&) = delete;
 
-    [[nodiscard]] T* Acquire() {
+    [[nodiscard]] T* Acquire() noexcept {
         PoolNode* node = tls_cache_.Pop();
         if (node != nullptr) return reinterpret_cast<T*>(node);
         node = free_list_.Pop();
@@ -158,13 +163,27 @@ public:
         GrowPool(grow_batch_);
         node = free_list_.Pop();
         if (node != nullptr) return reinterpret_cast<T*>(node);
-        void* mem = std::aligned_alloc(alignof(T), ((sizeof(T) > sizeof(PoolNode) ? sizeof(T) : sizeof(PoolNode)) + 63) & ~size_t(63));
+        // Last-resort allocation.  std::aligned_alloc may return nullptr
+        // (it does not throw), satisfying the zero-exception design goal.
+        constexpr size_t kSlotAlign = 64;
+        size_t obj_size = ((sizeof(T) > sizeof(PoolNode)
+                            ? sizeof(T) : sizeof(PoolNode)) + (kSlotAlign - 1))
+                           & ~size_t(kSlotAlign - 1);
+        void* mem = std::aligned_alloc(kSlotAlign, obj_size);
         return reinterpret_cast<T*>(mem);
     }
 
     void Release(T* obj) {
         if (obj == nullptr) return;
         obj->~T();
+        ReleaseMemory(obj);
+    }
+
+    // ReleaseRaw recycles the memory without calling the destructor.
+    // Used from operator delete, which is called AFTER the delete-expression
+    // has already invoked the destructor via the virtual dispatch mechanism.
+    void ReleaseMemory(T* obj) {
+        if (obj == nullptr) return;
         PoolNode* node = reinterpret_cast<PoolNode*>(obj);
         if (tls_cache_.Push(node)) return;
         auto* batch = tls_cache_.FlushHalf();
@@ -189,6 +208,8 @@ private:
     struct alignas(64) ThreadCache {
         PoolNode* nodes[kObjectPoolTlsCacheSize]{};
         size_t count{0};
+
+        void Reset() noexcept { count = 0; }
 
         PoolNode* Pop() noexcept { return count == 0 ? nullptr : nodes[--count]; }
         bool Push(PoolNode* node) noexcept {

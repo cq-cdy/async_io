@@ -52,8 +52,8 @@ public:
     [[nodiscard]] task::AsyncTask<void>* CreateAcceptTask(Args&&... handler_args) {
         auto* task = task::CreateTaskWithHandler(
             listen_fd_, std::forward<Args>(handler_args)...);
-        task.SetTaskType(task::TaskType::kAccept);
-        task.SetRepeatForever(true);
+        task->SetTaskType(task::TaskType::kAccept);
+        task->SetRepeatForever(true);
         return task;
     }
 

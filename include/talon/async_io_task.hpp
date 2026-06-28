@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <liburing.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -141,6 +142,7 @@ public:
     friend class talon::IOHandler;
     template <typename Func, typename... Args>
     friend auto CreateTaskWithHandler(int fd, Func&& func, Args&&... args);
+    friend AsyncTask<void>* CreateTaskWithHandler(int fd);
 
     AsyncTask(const AsyncTask&) = delete;
     AsyncTask& operator=(const AsyncTask&) = delete;
@@ -159,9 +161,13 @@ public:
     static void operator delete(void* ptr) noexcept {
         if constexpr (std::is_same_v<Ret, void> && sizeof...(UserArgs) == 0) {
             if (ptr != nullptr) {
-                auto* task = static_cast<AsyncTask<void>*>(ptr);
-                task->~AsyncTask();
-                GetTaskPool<AsyncTask<void>>().Release(task);
+                // The delete-expression already invoked the destructor via
+                // virtual dispatch.  ReleaseMemory recycles the backing
+                // storage without a second destructor call.  Pool memory
+                // is sliced from large aligned_alloc blocks and cannot be
+                // passed to free() individually.
+                GetTaskPool<AsyncTask<void>>().ReleaseMemory(
+                    static_cast<AsyncTask<void>*>(ptr));
                 return;
             }
         }
@@ -218,6 +224,7 @@ public:
     }
 
     [[nodiscard]] __u64 Cancel(struct io_uring* uring, __u64 special_user_data = 0) noexcept {
+        if (uring == nullptr) { DebugLog("Cancel: null uring\n"); return 0; }
         __u64 userdata = (special_user_data == 0) ? user_data_ : special_user_data;
         io_uring_sqe* cancel_sqe = io_uring_get_sqe(uring);
         if (cancel_sqe == nullptr) { DebugLog("Cancel: io_uring_get_sqe null\n"); return 0; }
@@ -272,13 +279,8 @@ private:
 };
 
 // ============================================================================
-// CreateTaskWithHandler — factory function
+// CreateTaskWithHandler — factory functions
 // ============================================================================
-
-[[nodiscard]] inline auto CreateTaskWithHandler(int fd) {
-    return new AsyncTask<void>(fd, InlineFunction<void(KernelBuf*)>(
-        [](KernelBuf*) noexcept {}));
-}
 
 template <typename Func_, typename... Args_>
 [[nodiscard]] auto CreateTaskWithHandler(int fd, Func_&& func, Args_&&... args) {
@@ -295,6 +297,11 @@ template <typename Func_, typename... Args_>
     auto bound = std::bind(std::forward<Func_>(func), std::placeholders::_1,
                            std::forward<Args_>(args)...);
     return new AsyncTask<ReturnType>(fd, InlineFunction<ReturnType(KernelBuf*)>(std::move(bound)));
+}
+
+[[nodiscard]] inline AsyncTask<void>* CreateTaskWithHandler(int fd) {
+    return new AsyncTask<void>(fd, InlineFunction<void(KernelBuf*)>(
+        [](KernelBuf*) {}));
 }
 
 }  // namespace task

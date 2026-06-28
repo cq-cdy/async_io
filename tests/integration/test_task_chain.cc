@@ -31,11 +31,11 @@ TEST_CASE("task chain two tasks sequential") {
     };
 
     auto* t1 = CreateTaskWithHandler(fd, handler1);
-    t1.SetTaskType(TaskType::kRead);
+    t1->SetTaskType(TaskType::kRead);
 
     auto* t2 = CreateTaskWithHandler(fd, handler2);
-    t2.SetTaskType(TaskType::kRead);
-    t1.SetNextTask(t2);
+    t2->SetTaskType(TaskType::kRead);
+    t1->SetNextTask(t2);
 
     io.AddTask(t1);
     io.Flush();
@@ -64,14 +64,14 @@ TEST_CASE("task chain three tasks") {
     };
 
     auto* t1 = CreateTaskWithHandler(fd, make_handler());
-    t1.SetTaskType(TaskType::kRead);
+    t1->SetTaskType(TaskType::kRead);
     auto* t2 = CreateTaskWithHandler(fd, make_handler());
-    t2.SetTaskType(TaskType::kRead);
+    t2->SetTaskType(TaskType::kRead);
     auto* t3 = CreateTaskWithHandler(fd, make_handler());
-    t3.SetTaskType(TaskType::kRead);
+    t3->SetTaskType(TaskType::kRead);
 
-    t1.SetNextTask(t2);
-    t2.SetNextTask(t3);
+    t1->SetNextTask(t2);
+    t2->SetNextTask(t3);
 
     io.AddTask(t1);
     io.Flush();
@@ -95,7 +95,7 @@ TEST_CASE("task chain next_task nullptr is fine") {
 
     std::atomic<bool> done{false};
     auto* t = CreateTaskWithHandler(fd, [&](KernelBuf*) { done.store(true); });
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     // No next task set — should still complete normally.
     io.AddTask(t);
     io.Flush();

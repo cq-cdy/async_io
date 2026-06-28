@@ -18,6 +18,7 @@ option(TALON_ENABLE_DEBUG "Enable TALON_DEBUG compile definition" OFF)
 # ============================================================================
 # Dependencies
 # ============================================================================
+find_package(Threads REQUIRED)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(LIBURING REQUIRED liburing)
@@ -50,10 +51,15 @@ if(TALON_ENABLE_DEBUG)
 endif()
 
 # Compiler warnings for the library (apply to consumers via INTERFACE).
-target_compile_options(talon_async_io INTERFACE
-    -Wall -Wextra -Wpedantic
-    -Wno-c++20-extensions
-)
+# -Wno-c++20-extensions is Clang-specific.
+# -Wno-format-security is needed because DebugLog takes a runtime format
+#   string (template parameter pack) that the compiler cannot verify;
+#   all call sites use string literals, so this is safe.
+set(TALON_WARNING_FLAGS -Wall -Wextra -Wpedantic -Wno-format-security)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    list(APPEND TALON_WARNING_FLAGS -Wno-c++20-extensions)
+endif()
+target_compile_options(talon_async_io INTERFACE ${TALON_WARNING_FLAGS})
 
 # ============================================================================
 # Installation

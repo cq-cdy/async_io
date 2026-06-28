@@ -90,23 +90,23 @@ TEST_CASE("AsyncTask default state is kReady") {
 
 TEST_CASE("AsyncTask set_task_type") {
     auto* t = CreateTaskWithHandler(3);
-    t.SetTaskType(TaskType::kRead);
+    t->SetTaskType(TaskType::kRead);
     CHECK(t->Type() == TaskType::kRead);
-    t.SetTaskType(TaskType::kWrite);
+    t->SetTaskType(TaskType::kWrite);
     CHECK(t->Type() == TaskType::kWrite);
     delete t;
 }
 
 TEST_CASE("AsyncTask set_timeout") {
     auto* t = CreateTaskWithHandler(3);
-    t.SetTimeout(5000);
+    t->SetTimeout(5000);
     // Timeout is stored internally; we only verify no crash.
     delete t;
 }
 
 TEST_CASE("AsyncTask set_max_retry_count") {
     auto* t = CreateTaskWithHandler(1);
-    t.SetMaxRetryCount(3);
+    t->SetMaxRetryCount(3);
     // repeat_when_failed returns true when max_retry_count > 0
     CHECK(t->RepeatWhenFailed());
     delete t;
@@ -114,23 +114,23 @@ TEST_CASE("AsyncTask set_max_retry_count") {
 
 TEST_CASE("AsyncTask set_max_retry_count zero") {
     auto* t = CreateTaskWithHandler(1);
-    t.SetMaxRetryCount(0);
+    t->SetMaxRetryCount(0);
     CHECK_FALSE(t->RepeatWhenFailed());
     delete t;
 }
 
 TEST_CASE("AsyncTask set_repeat_forever") {
     auto* t = CreateTaskWithHandler(2);
-    t.SetRepeatForever(true);
+    t->SetRepeatForever(true);
     CHECK(t->RepeatForever());
-    t.SetRepeatForever(false);
+    t->SetRepeatForever(false);
     CHECK_FALSE(t->RepeatForever());
     delete t;
 }
 
 TEST_CASE("AsyncTask set_debug_str") {
     auto* t = CreateTaskWithHandler(0);
-    t.SetDebugStr("test debug");
+    t->SetDebugStr("test debug");
     CHECK(t->DebugStr() == "test debug");
     delete t;
 }

@@ -29,8 +29,8 @@ TEST_CASE("timeout read from /dev/random fires timeout") {
     };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
-    t.SetTimeout(1);  // 1ms timeout — very aggressive
+    t->SetTaskType(TaskType::kRead);
+    t->SetTimeout(1);  // 1ms timeout — very aggressive
     io.AddTask(t);
     io.Flush();
 
@@ -57,8 +57,8 @@ TEST_CASE("timeout with short duration") {
     auto h = [&](KernelBuf*) { completed.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
-    t.SetTimeout(50);  // 50ms
+    t->SetTaskType(TaskType::kRead);
+    t->SetTimeout(50);  // 50ms
     io.AddTask(t);
     io.Flush();
 
@@ -83,8 +83,8 @@ TEST_CASE("timeout on write would fail fd") {
     auto h = [&](KernelBuf*) { completed.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(-1, h);
-    t.SetTaskType(TaskType::kWrite);
-    t.SetTimeout(100);
+    t->SetTaskType(TaskType::kWrite);
+    t->SetTimeout(100);
     t->Buffer()->Resize(4);
     std::memset(t->Buffer()->Data(), 'A', 4);
     io.AddTask(t);
@@ -110,8 +110,8 @@ TEST_CASE("timeout zero means no timeout") {
     auto h = [&](KernelBuf*) { done.store(true, std::memory_order_release); };
 
     auto* t = CreateTaskWithHandler(fd, h);
-    t.SetTaskType(TaskType::kRead);
-    t.SetTimeout(0);  // No timeout
+    t->SetTaskType(TaskType::kRead);
+    t->SetTimeout(0);  // No timeout
     io.AddTask(t);
     io.Flush();
 

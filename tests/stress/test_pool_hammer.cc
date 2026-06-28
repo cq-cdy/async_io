@@ -125,5 +125,5 @@ TEST_CASE("pool hammer: rapid create/destroy on BufferPool") {
     for (auto& t : threads) t.join();
 
     CHECK(errors.load() == 0);
-    SUCCEED("BufferPool hammer test OK");
+    MESSAGE("BufferPool hammer test OK");
 }

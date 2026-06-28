@@ -14,9 +14,10 @@
 
 namespace talon {
 inline namespace v2_2_0 {
-namespace task {
 
 class IOHandler;
+
+namespace task {
 
 struct KernelBuf {
     friend class talon::IOHandler;
@@ -54,7 +55,7 @@ struct KernelBuf {
     [[nodiscard]] char* Data() noexcept {
         switch (storage_tag_) {
             case StorageTag::kSbo:  return sbo_data_;
-            case StorageTag::kPool: return pool_data_;
+            case StorageTag::kPool: return pool_.data;
             case StorageTag::kHeap: return heap_vec_.data();
             case StorageTag::kNone: return nullptr;
         }
@@ -106,10 +107,12 @@ private:
                 pool_.alloc_size = size;
             } else {
                 storage_tag_ = StorageTag::kHeap;
+                heap_vec_.~vector();
                 new (&heap_vec_) std::vector<char>(size);
             }
         } else {
             storage_tag_ = StorageTag::kHeap;
+            heap_vec_.~vector();
             new (&heap_vec_) std::vector<char>(size);
         }
         this->size = size;
@@ -125,7 +128,10 @@ private:
                     pool_.alloc_size = 0;
                 }
                 break;
-            case StorageTag::kHeap: heap_vec_.~vector(); break;
+            case StorageTag::kHeap:
+                heap_vec_.~vector();
+                new (&heap_vec_) std::vector<char>();  // revive as empty, safe for auto-dtor
+                break;
             case StorageTag::kNone: break;
         }
         storage_tag_ = StorageTag::kNone;
